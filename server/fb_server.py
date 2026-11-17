@@ -17,6 +17,8 @@
                   fb-loader.js、feedback.js、fb-media.js、feedback.html（汇总页）等，项目只需加一行 <script>
   FB_NOTIFY_URL   选填。有新批注、新回复、状态变化时 POST 通知（飞书群机器人地址，或任意接收 JSON 的地址）
   FB_NOTIFY_KIND  feishu（默认，飞书卡片）或 json（原样 JSON）
+  FB_ACCEPTANCE   验收流程，默认开（设为 0 关闭）。开着时：团队成员或 agent 把状态改为「已改好」会变成「待验收」，
+                  要管理员口令点「通过」才算数；打回必须写理由，理由可导出为纠正记录
 
 请求头：X-FB-Code（口令）、X-FB-Name（姓名，encodeURIComponent 编码）、X-FB-Cid（浏览器随机 id，用来认「自己的批注」）。
 署名为 Claude / Codex 等 agent 名称时，汇总页显示为 AI。
@@ -30,6 +32,12 @@
   POST items/<id>/edit           改内容（作者或管理员）{body, kind, priority}
   POST items/<id>/delete         删除（作者或管理员；软删除）
   POST items/<id>/shot           补传或替换批注位置截图 {shot}
+  POST items/<id>/review         提交验收 {note, preview_url, stage, images}：note 写明改了什么（必填）；preview_url 预览地址；
+                                 stage: preview（改动在预览环境，通过后再上线）/ live（改动已在线上）；images 改后截图
+  POST items/<id>/accept         通过验收（仅管理员）{note}：预览环境的改动变为「已通过」，等 agent 上线；已在线上的直接「已改好」
+  POST items/<id>/reject         打回（仅管理员）{reason}：理由必填，状态回到「待处理」
+  POST items/<id>/publish        已通过的改动上线后标记 {note}，状态变为「已改好」
+  GET  corrections.jsonl         全部打回记录（每行一条：任务、agent 做了什么、打回的原话），用于沉淀纠正
   GET  files/<id>                读取附件（PNG / JPEG / WebP / GIF，按文件内容判断类型）
   GET  export.md?status=open,doing,question   给 agent 的修改清单（Markdown，按页面分组，含截图地址）
   GET  export.json               全部数据
@@ -55,7 +63,10 @@ CLIENT = os.path.abspath(os.environ.get('FB_CLIENT_DIR', os.path.join(HERE, '..'
 NOTIFY_URL = os.environ.get('FB_NOTIFY_URL', '')
 NOTIFY_KIND = os.environ.get('FB_NOTIFY_KIND', 'feishu')
 CHOICES = ('zhang', 'sun', 'other', 'discuss', '')
-STATUSES = {'open': '待处理', 'doing': '处理中', 'done': '已改好', 'wontfix': '不改', 'question': '待讨论'}
+ACCEPT = os.environ.get('FB_ACCEPTANCE', '1') != '0'
+STATUSES = {'open': '待处理', 'doing': '处理中', 'question': '待讨论', 'review': '待验收', 'approved': '已通过', 'done': '已改好', 'wontfix': '不改'}
+STAGES = {'preview': '改动在预览环境，通过后再上线', 'live': '改动已在线上'}
+ACTS = {'reply': '新回复', 'status': '状态更新', 'review': '待验收', 'accept': '验收通过', 'reject': '验收打回', 'publish': '已上线'}
 KINDS = {'bug': '问题', 'suggest': '建议', 'copy': '文案', 'style': '样式', 'data': '内容有误'}
 PRIOS = {'high': '高', 'mid': '中', 'low': '低'}
 LOCK = threading.Lock()
@@ -101,15 +112,35 @@ def init():
         CREATE TABLE IF NOT EXISTS files (id TEXT PRIMARY KEY, item INTEGER, reply INTEGER, kind TEXT, mime TEXT, size INTEGER, author TEXT, created REAL);
         CREATE INDEX IF NOT EXISTS ix_files_item ON files(item);''')
         if 'url' not in [r[1] for r in c.execute('PRAGMA table_info(items)')]: c.execute('ALTER TABLE items ADD COLUMN url TEXT')   # 旧库升级
+        if 'meta' not in [r[1] for r in c.execute('PRAGMA table_info(replies)')]: c.execute('ALTER TABLE replies ADD COLUMN meta TEXT')   # 验收包（预览地址、阶段）
 
 def clip(v, n):
     v = '' if v is None else str(v)
     return v[:n]
 
+def meta_of(s):
+    try: return json.loads(s) if s else {}
+    except ValueError: return {}
+
+def last_review(c, iid, before=None):
+    """这条批注最近一次提交的验收包（before：只看某条回复之前的）。"""
+    r = c.execute("SELECT id, author, body, meta, created FROM replies WHERE item=? AND kind='review'" + (' AND id<?' if before else '') + ' ORDER BY id DESC LIMIT 1', (iid, before) if before else (iid,)).fetchone()
+    return dict(r, meta=meta_of(r['meta'])) if r else None
+
+def submit_review(c, iid, d, name, cid, now, note=None):
+    """提交验收：写明改了什么，可带预览地址和改后截图。状态变为「待验收」。"""
+    note = clip(d.get('note') if note is None else note, 2000).strip(); url = clip(d.get('preview_url'), 1000).strip()
+    if not note: raise ValueError('提交验收要写明改了什么')
+    if url and not re.match(r'https?://|/(?!/)', url): raise ValueError('预览地址要以 http://、https:// 或 / 开头')
+    stage = d.get('stage') if d.get('stage') in STAGES else ('preview' if url else 'live')
+    rc = c.execute('INSERT INTO replies (item,author,cid,body,kind,created,meta) VALUES (?,?,?,?,?,?,?)', (iid, name, cid, note, 'review', now, json.dumps({'preview_url': url, 'stage': stage}, ensure_ascii=False)))
+    save_files(c, iid, rc.lastrowid, 'after', d.get('images'), name, MAX_IMG)
+    c.execute('UPDATE items SET status=?, updated=? WHERE id=?', ('review', now, iid))
+
 def row_item(c, r):
     d = dict(r); fs = [dict(x) for x in c.execute('SELECT id, reply, kind, mime, size, author, created FROM files WHERE item=? ORDER BY created', (r['id'],))]
     d['files'] = [f for f in fs if not f['reply']]
-    d['replies'] = [dict(x, files=[f for f in fs if f['reply'] == x['id']]) for x in c.execute('SELECT id, author, body, kind, created FROM replies WHERE item=? ORDER BY id', (r['id'],))]
+    d['replies'] = [dict(x, meta=meta_of(x['meta']), files=[f for f in fs if f['reply'] == x['id']]) for x in c.execute('SELECT id, author, body, kind, created, meta FROM replies WHERE item=? ORDER BY id', (r['id'],))]
     d.pop('cid', None); return d
 
 # 简单限流：每个 IP 每分钟最多 120 次写入（确认页有「本组一键确认」）；口令错误每 IP 每 10 分钟最多 10 次
@@ -158,7 +189,7 @@ class H(BaseHTTPRequestHandler):
         if method == 'POST' and limited(WRITES, ip, 120, 60): return self.send(429, {'error': '操作太频繁，稍等一下'})
         try:
             with LOCK, db() as c:
-                if method == 'GET' and p == 'ping': return self.send(200, {'ok': True, 'role': role})
+                if method == 'GET' and p == 'ping': return self.send(200, {'ok': True, 'role': role, 'acceptance': ACCEPT})
                 if method == 'GET' and p == 'items':
                     sql, a = 'SELECT * FROM items WHERE deleted=0', []
                     if qs.get('page') and not qs.get('all'): sql += ' AND page=?'; a.append(qs['page'])
@@ -166,7 +197,7 @@ class H(BaseHTTPRequestHandler):
                     rows = [row_item(c, r) for r in c.execute(sql + ' ORDER BY id DESC LIMIT 2000', a)]
                     mine = {r['id'] for r in c.execute('SELECT id FROM items WHERE cid=? AND cid<>""', (cid,))} if cid else set()
                     for r in rows: r['mine'] = r['id'] in mine
-                    return self.send(200, {'items': rows, 'role': role})
+                    return self.send(200, {'items': rows, 'role': role, 'acceptance': ACCEPT})
                 if method == 'POST' and p == 'items':
                     d = self.body(); txt = clip(d.get('body'), 4000).strip(); page = clip(d.get('page'), 300).strip()
                     if not txt or not page: return self.send(400, {'error': '请写下意见'})
@@ -180,11 +211,11 @@ class H(BaseHTTPRequestHandler):
                     r = c.execute('SELECT * FROM items WHERE id=?', (cur.lastrowid,)).fetchone(); out = row_item(c, r); out['mine'] = True
                     notify('新批注', out, f'{name}：{txt}')
                     return self.send(200, {'item': out})
-                m = re.fullmatch(r'items/(\d+)/(reply|status|edit|delete|shot)', p)
+                m = re.fullmatch(r'items/(\d+)/(reply|status|edit|delete|shot|review|accept|reject|publish)', p)
                 if method == 'POST' and m:
                     iid, act = int(m.group(1)), m.group(2); r = c.execute('SELECT * FROM items WHERE id=? AND deleted=0', (iid,)).fetchone()
                     if not r: return self.send(404, {'error': '这条批注不存在'})
-                    d = self.body(); now = time.time(); own = bool(cid) and r['cid'] == cid
+                    d = self.body(); now = time.time(); own = bool(cid) and r['cid'] == cid; info = None
                     if act == 'reply':
                         txt = clip(d.get('body'), 4000).strip()
                         if not txt and not d.get('images'): return self.send(400, {'error': '回复是空的'})
@@ -201,8 +232,35 @@ class H(BaseHTTPRequestHandler):
                         st = d.get('status')
                         if st not in STATUSES: return self.send(400, {'error': '状态不对'})
                         note = clip(d.get('note'), 2000).strip()
-                        c.execute('UPDATE items SET status=?, updated=? WHERE id=?', (st, now, iid))
-                        c.execute('INSERT INTO replies (item,author,cid,body,kind,created) VALUES (?,?,?,?,?,?)', (iid, name, cid, f'把状态改为「{STATUSES[st]}」' + (f'：{note}' if note else ''), 'status', now))
+                        if ACCEPT and st == 'approved': return self.send(400, {'error': '「已通过」只能由管理员在验收时给出'})
+                        if ACCEPT and st == 'done' and role != 'admin' and r['status'] == 'approved':   # 已通过的改动上线了
+                            act = 'publish'; c.execute('UPDATE items SET status=?, updated=? WHERE id=?', ('done', now, iid))
+                            c.execute('INSERT INTO replies (item,author,cid,body,kind,created) VALUES (?,?,?,?,?,?)', (iid, name, cid, note, 'publish', now))
+                        elif ACCEPT and (st == 'review' or (st == 'done' and role != 'admin')):   # 「我改好了」不等于「认可了」：转为待验收
+                            act = 'review'; submit_review(c, iid, d, name, cid, now); info = '已提交验收，等管理员通过'
+                        else:
+                            c.execute('UPDATE items SET status=?, updated=? WHERE id=?', (st, now, iid))
+                            c.execute('INSERT INTO replies (item,author,cid,body,kind,created) VALUES (?,?,?,?,?,?)', (iid, name, cid, f'把状态改为「{STATUSES[st]}」' + (f'：{note}' if note else ''), 'status', now))
+                    elif act == 'review':
+                        submit_review(c, iid, d, name, cid, now)
+                    elif act == 'accept':
+                        if role != 'admin': return self.send(403, {'error': '只有管理员可以验收'})
+                        if r['status'] != 'review': return self.send(409, {'error': '这条不在「待验收」状态'})
+                        rv = last_review(c, iid) or {'id': None, 'meta': {}}; stage = rv['meta'].get('stage') or 'live'
+                        c.execute('UPDATE items SET status=?, updated=? WHERE id=?', ('approved' if stage == 'preview' else 'done', now, iid))
+                        c.execute('INSERT INTO replies (item,author,cid,body,kind,created,meta) VALUES (?,?,?,?,?,?,?)', (iid, name, cid, clip(d.get('note'), 2000).strip(), 'accept', now, json.dumps({'stage': stage, 'review': rv['id']})))
+                    elif act == 'reject':
+                        if role != 'admin': return self.send(403, {'error': '只有管理员可以打回'})
+                        if r['status'] not in ('review', 'approved'): return self.send(409, {'error': '只有「待验收」或「已通过」的条目可以打回'})
+                        reason = clip(d.get('reason'), 2000).strip()
+                        if not reason: return self.send(400, {'error': '打回要写理由'})
+                        rv = last_review(c, iid) or {'id': None}
+                        c.execute('UPDATE items SET status=?, updated=? WHERE id=?', ('open', now, iid))
+                        c.execute('INSERT INTO replies (item,author,cid,body,kind,created,meta) VALUES (?,?,?,?,?,?,?)', (iid, name, cid, reason, 'reject', now, json.dumps({'review': rv['id']})))
+                    elif act == 'publish':
+                        if r['status'] != 'approved': return self.send(409, {'error': '只有「已通过」的条目可以标记上线'})
+                        c.execute('UPDATE items SET status=?, updated=? WHERE id=?', ('done', now, iid))
+                        c.execute('INSERT INTO replies (item,author,cid,body,kind,created) VALUES (?,?,?,?,?,?)', (iid, name, cid, clip(d.get('note'), 2000).strip(), 'publish', now))
                     elif act == 'edit':
                         if not (own or role == 'admin'): return self.send(403, {'error': '只能改自己写的批注'})
                         txt = clip(d.get('body'), 4000).strip() or r['body']
@@ -212,8 +270,8 @@ class H(BaseHTTPRequestHandler):
                         c.execute('UPDATE items SET deleted=1, updated=? WHERE id=?', (now, iid))
                         return self.send(200, {'ok': True})
                     out = row_item(c, c.execute('SELECT * FROM items WHERE id=?', (iid,)).fetchone()); out['mine'] = own
-                    if act in ('reply', 'status'): notify('新回复' if act == 'reply' else '状态更新', out, out['replies'][-1]['author'] + '：' + out['replies'][-1]['body'] if out['replies'] else '')
-                    return self.send(200, {'item': out})
+                    if act in ACTS: notify(ACTS[act], out, out['replies'][-1]['author'] + '：' + out['replies'][-1]['body'] if out['replies'] else '')
+                    return self.send(200, {'item': out, 'info': info} if info else {'item': out})
                 if p == 'decisions':
                     scope = (qs.get('scope') or '') if method == 'GET' else ''
                     if method == 'GET':
@@ -239,8 +297,15 @@ class H(BaseHTTPRequestHandler):
                 if method == 'GET' and p == 'export.json':
                     rows = [row_item(c, r) for r in c.execute('SELECT * FROM items WHERE deleted=0 ORDER BY page, id')]
                     return self.send(200, {'generated': time.strftime('%Y-%m-%d %H:%M'), 'statuses': STATUSES, 'kinds': KINDS, 'items': rows})
+                if method == 'GET' and p == 'corrections.jsonl':   # 每次打回 = 一条纠正：任务、agent 做了什么、打回的原话
+                    out = []
+                    for x in c.execute("SELECT r.id, r.item, r.author, r.body, r.created, i.page, i.url, i.title, i.body AS task FROM replies r JOIN items i ON i.id=r.item WHERE r.kind='reject' AND i.deleted=0 ORDER BY r.id"):
+                        rv = last_review(c, x['item'], x['id']) or {'author': '', 'body': '', 'meta': {}}
+                        out.append(json.dumps({'ts': time.strftime('%Y-%m-%dT%H:%M:%S', time.localtime(x['created'])), '来源': f'页面批注 #{x["item"]}', '页面': page_url(dict(x)), '任务': x['task'],
+                                               '我做的': rv['body'], '谁做的': rv['author'], '预览': rv['meta'].get('preview_url', ''), '他的原话': x['body'], '谁打回的': x['author'], '他要的': '', '落差类型': '', '归类': ''}, ensure_ascii=False))
+                    return self.send(200, raw=('\n'.join(out) + ('\n' if out else '')).encode(), ctype='application/x-ndjson; charset=utf-8')
                 if method == 'GET' and p == 'export.md':
-                    st = (qs.get('status') or 'open,doing,question').split(',')
+                    st = (qs.get('status') or ('open,doing,question,approved' if ACCEPT else 'open,doing,question')).split(',')
                     rows = [row_item(c, r) for r in c.execute('SELECT * FROM items WHERE deleted=0 AND status IN (%s) ORDER BY page, id' % ','.join('?' * len(st)), st)]
                     return self.send(200, raw=export_md(rows, st).encode(), ctype='text/markdown; charset=utf-8')
         except ValueError as e:
@@ -283,7 +348,9 @@ def export_md(rows, st):
     ts = lambda t: time.strftime('%m-%d %H:%M', time.localtime(t))
     out = [f'# 网站修改意见清单（{time.strftime("%Y-%m-%d %H:%M")}）', '',
            f'- 范围：状态为 {"、".join(STATUSES.get(s, s) for s in st)} 的批注，共 {len(rows)} 条',
-           '- 处理完请把对应条目改为「已改好」并写明改了什么（汇总页 feedback.html，或 POST items/<id>/status）', '']
+           ('- 改完请提交验收：POST items/<id>/review {note: 改了什么, preview_url: 预览地址, images: 改后截图}；管理员通过后，「已通过」的条目上线并 POST items/<id>/publish' if ACCEPT
+            else '- 处理完请把对应条目改为「已改好」并写明改了什么（汇总页 feedback.html，或 POST items/<id>/status）'), '']
+    LAB = {'review': '【提交验收】', 'accept': '【通过】', 'reject': '【打回】', 'publish': '【已上线】'}
     by = defaultdict(list)
     for r in rows: by[r['page']].append(r)
     order = {'high': 0, 'mid': 1, 'low': 2}
@@ -296,7 +363,8 @@ def export_md(rows, st):
             if r.get('files'): out.append('- 附件（读取需口令）：' + '、'.join(f'{"截图" if f["kind"] == "shot" else "图片"} {PREFIX}files/{f["id"]}' for f in r['files']))
             out += ['', r['body'], '']
             for x in r['replies']:
-                out.append(f'- {x["author"]}（{ts(x["created"])}）：{x["body"]}')
+                pv = (x.get('meta') or {}).get('preview_url')
+                out.append(f'- {x["author"]}（{ts(x["created"])}）：{LAB.get(x["kind"], "")}{x["body"]}' + (f'（预览：{pv}）' if pv else ''))
             if r['replies']: out.append('')
     return '\n'.join(out) + '\n'
 

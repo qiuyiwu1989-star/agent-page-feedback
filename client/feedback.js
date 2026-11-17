@@ -15,8 +15,10 @@
 
   const KIND = { bug: '问题', suggest: '建议', copy: '文案', style: '样式', data: '内容有误' };
   const PRIO = { high: '高', mid: '中', low: '低' };
-  const STAT = { open: '待处理', doing: '处理中', question: '待讨论', done: '已改好', wontfix: '不改' };
-  const SCOL = { open: '#C2410C', doing: '#1D4ED8', question: '#7C3AED', done: '#15803D', wontfix: '#6B7280' };
+  const STAT = { open: '待处理', doing: '处理中', question: '待讨论', review: '待验收', approved: '已通过', done: '已改好', wontfix: '不改' };
+  const SCOL = { open: '#C2410C', doing: '#1D4ED8', question: '#7C3AED', review: '#D97706', approved: '#0E7490', done: '#15803D', wontfix: '#6B7280' };
+  const KLAB = { review: '提交验收', accept: '通过', reject: '打回', publish: '已上线' };
+  const safeURL = u => /^(https?:\/\/|\/(?!\/))/.test(String(u || '')) ? String(u) : '';   // 预览地址只认 http(s) 和站内路径
   const esc = s => String(s == null ? '' : s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
   const ago = t => { const d = Date.now() / 1000 - t; return d < 60 ? '刚刚' : d < 3600 ? Math.floor(d / 60) + ' 分钟前' : d < 86400 ? Math.floor(d / 3600) + ' 小时前' : new Date(t * 1000).toLocaleDateString('zh-CN', { month: 'numeric', day: 'numeric' }) + ' ' + new Date(t * 1000).toTimeString().slice(0, 5); };
   // 页面标识：相对站点根的路径 + 查询参数（去掉批注自己的参数）+ 单页应用的 #/ 路由
@@ -95,6 +97,11 @@
   .rep { font-size: 12.5px; line-height: 1.6; color: #374151; white-space: pre-wrap; word-break: break-word; }
   .rep i { font-style: normal; color: #6b7280; }
   .rep.sys { color: #6b7280; }
+  .rep b.k { font-size: 10.5px; font-weight: 700; border-radius: 4px; padding: 0 4px; margin-right: 4px; background: #FEF3C7; color: #92400E; } .rep b.k.accept, .rep b.k.publish { background: #DCFCE7; color: #15803D; } .rep b.k.reject { background: #FEE2E2; color: #B91C1C; }
+  .rvx { margin-top: 8px; padding: 8px 10px; border-radius: 10px; background: #FFFBEB; border: 1px solid #FCD34D; font-size: 12.5px; line-height: 1.6; color: #374151; }
+  .rvx p { margin: 2px 0 6px; white-space: pre-wrap; word-break: break-word; color: #1f2430; } .rvx .t { font-weight: 700; color: #92400E; } .rvx.ap { background: #ECFEFF; border-color: #A5F3FC; } .rvx.ap .t { color: #0E7490; }
+  .rvx .row { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; } .rvx .btn { padding: 4px 10px; font-size: 12px; } .rvx a { color: #2446B8; }
+  .btn.yes { background: #15803D; border-color: #15803D; color: #fff; } .btn.nope { border-color: #B91C1C; color: #B91C1C; }
   .ra { display: flex; gap: 6px; margin-top: 8px; }
   .ra input { flex: 1; padding: 5px 8px; font-size: 12.5px; }
   .ra .btn { padding: 4px 10px; font-size: 12px; }
@@ -131,7 +138,7 @@
   (document.body || document.documentElement).appendChild(host);
   $('[data-a="sum"]').href = SUMMARY;
 
-  let items = [], allItems = null, picking = false, showPins = LS.get('pins') !== 'off', scope = 'page', filt = 'todo', cur = 0, role = '', page = pageKey();
+  let items = [], allItems = null, picking = false, showPins = LS.get('pins') !== 'off', scope = 'page', filt = 'todo', cur = 0, role = '', acc = true, page = pageKey();
   const toast = t => { const e = $('.toast'); e.textContent = t; e.style.display = 'block'; clearTimeout(toast.t); toast.t = setTimeout(() => e.style.display = 'none', 2200); };
 
   // ---------- 登录 ----------
@@ -176,7 +183,7 @@
   function movePins() { pinsEl.querySelectorAll('.pin').forEach(d => { const it = items.find(x => x.id === +d.dataset.id), p = it && locate(it); if (p) { d.style.left = p.x + 'px'; d.style.top = p.y + 'px'; } }); }
   function counts() { const n = items.filter(open).length; $('.cnt .n').textContent = n; }
 
-  async function load() { page = pageKey(); try { const r = await api('items?page=' + encodeURIComponent(page)); role = r.role; items = r.items; counts(); renderPins(); if (drawer.classList.contains('on')) renderList(); }
+  async function load() { page = pageKey(); try { const r = await api('items?page=' + encodeURIComponent(page)); role = r.role; acc = r.acceptance !== false; items = r.items; counts(); renderPins(); if (drawer.classList.contains('on')) renderList(); }
     catch (e) { if (e.status === 401) { LS.set('code', ''); dock.hidden = true; login('口令已失效，请重新输入。'); } } }
 
   // ---------- 点选 ----------
@@ -235,12 +242,18 @@
     list.innerHTML = shown.length ? shown.map(card).join('') : `<div class="empty">${scope === 'page' ? '这一页还没有' + (filt === 'todo' ? '未完成的' : '') + '批注。<br>点左下角「批注」，再点页面上要改的地方。' : '还没有批注。'}</div>`; }
   function card(it) { const here = it.page === page, loc = here ? locate(it) : null;
     return `<div class="card${it.id === cur ? ' cur' : ''}" data-id="${it.id}"><div class="h"><span class="id" title="在页面上定位">#${it.id}</span><span class="tag${it.kind === 'bug' ? ' hi' : ''}">${KIND[it.kind] || ''}</span>${it.priority === 'high' ? '<span class="tag hi">优先级高</span>' : it.priority === 'low' ? '<span class="tag">优先级低</span>' : ''}<span>${esc(it.author)} · ${ago(it.created)}</span>
-      <select class="st" style="color:${SCOL[it.status]};border-color:${SCOL[it.status]}">${Object.entries(STAT).map(([k, v]) => `<option value="${k}"${k === it.status ? ' selected' : ''}>${v}</option>`).join('')}</select></div>
+      <select class="st" style="color:${SCOL[it.status]};border-color:${SCOL[it.status]}">${Object.entries(STAT).filter(([k]) => k !== 'approved' || it.status === 'approved').map(([k, v]) => `<option value="${k}"${k === it.status ? ' selected' : ''}>${v}</option>`).join('')}</select></div>
       ${scope === 'all' ? `<a class="pg" href="${esc(linkOf(it))}">${esc(it.title || it.page)}</a>` : ''}
       ${(it.files || []).length ? `<div class="shots">${it.files.map(f => `<img data-fid="${f.id}" class="${f.kind === 'shot' ? 'big' : ''}" alt="${f.kind === 'shot' ? '批注位置截图' : '附图'}" title="${f.kind === 'shot' ? '批注位置截图' : '附图'} · 点击放大">`).join('')}</div>` : ''}
       ${it.quote ? `<p class="quote">${esc(it.quote)}</p>` : ''}<p class="b">${esc(it.body)}</p>${here && loc && !loc.ok ? '<div class="gone">页面内容已变化，标记按原坐标显示</div>' : ''}
-      ${it.replies.length ? `<div class="reps">${it.replies.map(x => `<div class="rep${x.kind === 'status' ? ' sys' : ''}${/^claude$/i.test(x.author) ? ' ai' : ''}"><i>${esc(x.author)}：</i>${esc(x.body)}${(x.files || []).length ? `<div class="shots">${x.files.map(f => `<img data-fid="${f.id}" alt="附图">`).join('')}</div>` : ''}</div>`).join('')}</div>` : ''}
+      ${rvBox(it)}
+      ${it.replies.length ? `<div class="reps">${it.replies.map(x => `<div class="rep${x.kind === 'status' ? ' sys' : ''}${/^(claude|codex)$/i.test(x.author) ? ' ai' : ''}"><i>${esc(x.author)}：</i>${KLAB[x.kind] ? `<b class="k ${x.kind}">${KLAB[x.kind]}</b>` : ''}${esc(x.body)}${(x.files || []).length ? `<div class="shots">${x.files.map(f => `<img data-fid="${f.id}" alt="附图">`).join('')}</div>` : ''}</div>`).join('')}</div>` : ''}
       <div class="ra"><input type="text" placeholder="回复…（可粘贴图片）" maxlength="1000"><label class="imgb" title="添加图片">图片<input type="file" accept="image/png,image/jpeg,image/webp,image/gif" multiple></label><button class="btn rp">回复</button>${it.mine || role === 'admin' ? '<button class="lk del">删除</button>' : ''}</div></div>`; }
+  // 验收：agent 提交的改动说明和预览；管理员在这里通过或打回
+  function rvBox(it) { if (it.status !== 'review' && it.status !== 'approved') return ''; const rv = [...it.replies].reverse().find(x => x.kind === 'review'); if (!rv) return '';
+    const ap = it.status === 'approved', url = safeURL((rv.meta || {}).preview_url);
+    return `<div class="rvx${ap ? ' ap' : ''}"><span class="t">${ap ? '已通过，等上线' : '待验收'}</span> · ${esc(rv.author)} 提交<p>${esc(rv.body)}</p><div class="row">${url ? `<a href="${esc(url)}" target="_blank" rel="noopener">打开预览 ↗</a>` : ''}
+      ${role === 'admin' ? `${ap ? '' : '<button class="btn yes acc">通过</button>'}<button class="btn nope rej">打回</button>` : `<span>${ap ? '等 agent 上线' : '等管理员验收'}</span>`}</div></div>`; }
   function replace(it) { [items, allItems || []].forEach(a => { const i = a.findIndex(x => x.id === it.id); if (i >= 0) a[i] = Object.assign({}, a[i], it); }); counts(); renderPins(); renderList(); }
   drawer.addEventListener('click', async e => { const t = e.target;
     if (t.closest('.x')) { drawer.classList.remove('on'); cur = 0; renderPins(); return; }
@@ -250,12 +263,17 @@
     if (t.matches('.shots img') && t.src) { M().lightbox(t.src, t.alt); return; }
     if (t.closest('.rp')) { const inp = c.querySelector('.ra input'), pend = PEND.get(id) || []; if (!inp.value.trim() && !pend.length) return; t.closest('.rp').disabled = true;
       try { replace((await api(`items/${id}/reply`, { body: { body: inp.value.trim(), images: pend } })).item); PEND.delete(id); } catch (er) { toast(er.message); t.closest('.rp').disabled = false; } return; }
+    if (t.closest('.acc')) { t.disabled = true; try { replace((await api(`items/${id}/accept`, { body: { note: '' } })).item); toast('已通过 #' + id); } catch (er) { toast(er.message); t.disabled = false; } return; }
+    if (t.closest('.rej')) { const reason = (prompt('打回的理由（必填，会留作纠正记录）', '') || '').trim(); if (!reason) return;
+      try { replace((await api(`items/${id}/reject`, { body: { reason } })).item); toast('已打回 #' + id); } catch (er) { toast(er.message); } return; }
     if (t.closest('.del')) { if (!confirm('删除批注 #' + id + '？')) return; try { await api(`items/${id}/delete`, { body: {} }); items = items.filter(x => x.id !== id); if (allItems) allItems = allItems.filter(x => x.id !== id); counts(); renderPins(); renderList(); } catch (er) { toast(er.message); } } });
   const PEND = new Map();   // 回复里待发送的图片：批注 id → [data URL]
   const addPend = async (card, files) => { await media; const id = +card.dataset.id, a = PEND.get(id) || []; for (const f of files) { try { a.push(await M().readImage(f)); } catch (e2) { toast(e2.message); } } PEND.set(id, a);
     let box = card.querySelector('.pend'); if (!box) { box = document.createElement('div'); box.className = 'pend'; card.querySelector('.ra').after(box); } box.innerHTML = a.map((_, i) => `<span>图片 ${i + 1}</span>`).join('') + '<span>（点「回复」一起发送）</span>'; };
   drawer.addEventListener('paste', e => { const inp = e.target.closest && e.target.closest('.ra input'); if (!inp) return; const fs = [...(e.clipboardData || {}).files || []].filter(f => f.type.startsWith('image/')); if (fs.length) { e.preventDefault(); addPend(inp.closest('.card'), fs); } });
-  drawer.addEventListener('change', async e => { if (e.target.matches('.imgb input')) { addPend(e.target.closest('.card'), [...e.target.files]); e.target.value = ''; return; } const s = e.target.closest('.st'); if (!s) return; const id = +s.closest('.card').dataset.id; const note = s.value === 'done' || s.value === 'wontfix' ? (prompt('补一句说明（可不填）', '') || '') : '';
+  drawer.addEventListener('change', async e => { if (e.target.matches('.imgb input')) { addPend(e.target.closest('.card'), [...e.target.files]); e.target.value = ''; return; } const s = e.target.closest('.st'); if (!s) return; const id = +s.closest('.card').dataset.id, was = ((items.find(x => x.id === id) || (allItems || []).find(x => x.id === id)) || {}).status; let note = '';
+    if (s.value === 'review' || (acc && s.value === 'done' && role !== 'admin' && was !== 'approved')) { note = (prompt('写明改了什么（会提交给管理员验收）', '') || '').trim(); if (!note) { renderList(); return; } }
+    else if (s.value === 'done' || s.value === 'wontfix') note = prompt('补一句说明（可不填）', '') || '';
     try { replace((await api(`items/${id}/status`, { body: { status: s.value, note } })).item); } catch (er) { toast(er.message); } });
   drawer.addEventListener('keydown', e => { if (e.key === 'Enter' && e.target.matches('.ra input')) e.target.closest('.card').querySelector('.rp').click(); e.stopPropagation(); });
 

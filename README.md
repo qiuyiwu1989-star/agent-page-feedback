@@ -12,8 +12,9 @@
 
 1. **在页面上批注**：点左下角「批注」，再点页面上要改的地方（可以先划选一段文字）。会**自动截一张位置图**，用橙色框标出点选的元素；还可以粘贴或添加更多图片。
 2. **大家一起讨论**：所有批注存在服务器上，团队成员都能看到、回复（可以带图）、改状态。
-3. **agent 读取并修改**：agent 用一个 HTTP 接口拿到「待办清单」（Markdown，带页面地址、定位信息、截图地址和讨论记录），改完后把那条批注标为「已改好」并写明改了什么。
-4. **汇总与复盘**：汇总页按页面列出全部意见（左边截图、右边对话，AI 的回复单独标出），还有按日期的「时间线 · 复盘」视图，一键导出复盘报告。
+3. **agent 读取并修改**：agent 用一个 HTTP 接口拿到「待办清单」（Markdown，带页面地址、定位信息、截图地址和讨论记录），改完后**提交验收**：写明改了什么，附上预览地址或改后截图。
+4. **验收**：管理员在汇总页对照改前和改后，点「通过」，或者写一句理由「打回」。agent 自己说「已改好」不算数。
+5. **汇总与复盘**：汇总页按页面列出全部意见（左边截图、右边对话，AI 的回复单独标出），还有按日期的「时间线 · 复盘」视图，一键导出复盘报告。
 
 | 写批注时自动截图 | 汇总页：截图 + 对话，AI 回复单独标出 |
 |---|---|
@@ -29,6 +30,7 @@
 - **不影响网站本身**：批注界面放在 Shadow DOM 里，不受网站样式影响，也不影响网站样式。
 - **零依赖服务端**：一个 Python 文件，只用标准库和 SQLite。
 - **两级口令**：团队口令（批注、回复、改状态）和管理员口令（另外可以删除、修改任何人的批注）。不需要账号系统，适合小团队和项目早期。
+- **验收流程**：agent 改完只能提交验收，要管理员口令才能通过或打回。改动在预览环境时，通过之后才上线。打回必须写理由，理由会和「任务是什么、agent 做了什么」一起留下来，可以导出成纠正记录，让 agent 下次不再犯同样的错。不需要这一步的项目用 `FB_ACCEPTANCE=0` 关闭。
 - **给 agent 用的接口**：待办清单是 Markdown，回写只要一个 POST；署名为 `Claude` / `Codex` 的回复会显示为 AI。
 - **可选通知**：有新批注、新回复或状态变化时，发到飞书群（或任意接收 JSON 的地址）。
 - **逐条确认**：附带一个 `decisions` 接口，适合「两个版本逐条确认采用哪一个」这类需要留痕的决策。
@@ -103,10 +105,17 @@ FB_TEAM_CODE=换成团队口令 FB_ADMIN_CODE=换成管理员口令 python3 serv
   # 看截图
   curl -s -H "X-FB-Code: $FB_CODE" -o shot.jpg https://example.com/api/fb/files/附件编号
 
-  # 改完回写（署名 Claude / Codex，页面上显示为 AI）
+  # 改完提交验收（署名 Claude / Codex，页面上显示为 AI）。带预览地址时，表示改动还没上线
   curl -s -X POST -H "X-FB-Code: $FB_CODE" -H "X-FB-Name: Claude" -H "Content-Type: application/json" \
-    -d '{"status":"done","note":"标题从 32px 改为 40px，已在电脑和手机上检查"}' \
-    https://example.com/api/fb/items/编号/status
+    -d '{"note":"标题从 32px 改为 40px，已在电脑和手机上检查","preview_url":"https://staging.example.com/"}' \
+    https://example.com/api/fb/items/编号/review
+
+  # 管理员通过后，「已通过」的条目会回到待办清单里：上线，然后标记
+  curl -s -X POST -H "X-FB-Code: $FB_CODE" -H "X-FB-Name: Claude" -H "Content-Type: application/json" \
+    -d '{"note":"已发布到正式站"}' https://example.com/api/fb/items/编号/publish
+
+  # 全部打回记录（每行一条：任务、agent 做了什么、打回的原话）
+  curl -s -H "X-FB-Code: $FB_CODE" https://example.com/api/fb/corrections.jsonl
   ```
 
   清单样例见 [docs/export-sample.md](docs/export-sample.md)，完整接口见 [`server/fb_server.py`](server/fb_server.py) 文件开头。
@@ -119,13 +128,15 @@ flowchart LR
   B[团队成员<br>汇总页讨论] <--> S
   S -->|export.md 待办清单| G[AI agent]
   G -->|修改网站| W[网站]
-  G -->|标「已改好」+ 写明改了什么| S
+  G -->|提交验收：改了什么 + 预览 / 截图| S
+  M[管理员<br>验收] -->|通过，或写理由打回| S
+  S -->|打回记录| K[纠正记录<br>agent 下次先读]
   S -->|新批注 / 回复 / 状态变化| N[飞书群通知]
   W --> A
 ```
 
 - **人只做人擅长的事**：指出位置、说清意见、做判断（标「待讨论」或「不改」）。
-- **agent 只做 agent 擅长的事**：按清单逐条修改，并写明改了什么。需要人确认时，把状态改为「待讨论」并写出问题。
+- **agent 只做 agent 擅长的事**：按清单逐条修改，写明改了什么，交给人验收。需要人确认时，把状态改为「待讨论」并写出问题。
 - **一切都有记录**：谁提的、怎么讨论的、谁改的、用了多久，汇总页和复盘报告都能看到。
 
 ## 目录

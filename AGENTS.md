@@ -42,11 +42,19 @@ curl -s -H "X-FB-Code: $FB_CODE" -o shot.jpg "${FB_API}files/附件编号"   # �
      -d '{"status":"question","note":"想确认：……"}' "${FB_API}items/编号/status"
    ```
 2. **改完验证**：在电脑和手机宽度下都看一遍，确认没有带出别的问题。
-3. **回写，并写清楚改了什么**：
+3. **提交验收，并写清楚改了什么**：
    ```bash
    curl -s -X POST -H "X-FB-Code: $FB_CODE" -H "X-FB-Name: Claude" -H "Content-Type: application/json" \
-     -d '{"status":"done","note":"原因：……；改法：……；结果：……"}' "${FB_API}items/编号/status"
+     -d '{"note":"原因：……；改法：……；结果：……","preview_url":"https://预览地址","images":["data:image/jpeg;base64,…"]}' \
+     "${FB_API}items/编号/review"
    ```
+   - 你说「改好了」不算完成，要管理员点「通过」才算。不要试图自己通过：团队口令调用 `accept` 会被拒绝。
+   - **改动还没上线**（在预览或测试环境）：带上 `preview_url`。管理员通过后，这条会变成「已通过」并重新出现在 `export.md` 里；这时再发布到正式站，然后
+     `POST items/编号/publish {"note":"已发布，线上已核对"}`。没通过之前不要发布。
+   - **改动已经在线上**：不带 `preview_url`（或写 `"stage":"live"`），通过后直接完成。
+   - `images` 放改后的截图，管理员会和批注时的位置截图对照着看。能截就截，这是验收最快的依据。
+   - **被打回**：状态回到「待处理」，理由在讨论记录里（清单里标着【打回】）。先读理由再改，不要原样再交一次。
+   - 开工前读一遍 `GET corrections.jsonl`：里面是这个项目历次打回的原话，同样的错不要犯第二次。
    - 署名用你自己的名字（`Claude`、`Codex`），汇总页会把它显示为 AI。
    - 不改的，用 `"status":"wontfix"`，并写明理由。
    - 需要素材或别人决定的，先回复说明需要什么，状态保持「待处理」：
@@ -74,12 +82,17 @@ curl -s -H "X-FB-Code: $FB_CODE" -o shot.jpg "${FB_API}files/附件编号"   # �
 |---|---|---|
 | GET | `ping` | 检查口令，返回角色 team / admin |
 | GET | `items?all=1` / `items?page=页面标识` | 批注列表（含回复和附件） |
-| GET | `export.md?status=open,doing,question` | 给 agent 的待办清单 |
+| GET | `export.md` | 给 agent 的待办清单（默认含待处理、处理中、待讨论、已通过；可用 `?status=` 指定） |
 | GET | `export.json` | 全部数据 |
 | GET | `files/<id>` | 附件 |
 | POST | `items` | 新建批注 |
 | POST | `items/<id>/reply` | 回复 `{body, images}` |
-| POST | `items/<id>/status` | 改状态 `{status, note}`：open / doing / question / done / wontfix |
+| POST | `items/<id>/status` | 改状态 `{status, note}`：open / doing / question / wontfix；团队口令写 done 会变成提交验收 |
+| POST | `items/<id>/review` | 提交验收 `{note, preview_url, stage, images}`，状态变为「待验收」 |
+| POST | `items/<id>/accept` | 通过（仅管理员）`{note}` |
+| POST | `items/<id>/reject` | 打回（仅管理员）`{reason}`，理由必填 |
+| POST | `items/<id>/publish` | 已通过的改动上线后标记 `{note}` |
+| GET | `corrections.jsonl` | 全部打回记录，每行一条 |
 | POST | `items/<id>/shot` | 补传或替换位置截图 `{shot: "data:image/jpeg;base64,…"}` |
 | POST | `items/<id>/delete` | 删除（作者或管理员） |
 | GET / POST | `decisions` | 逐条确认的决策记录 |
