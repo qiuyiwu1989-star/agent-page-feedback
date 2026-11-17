@@ -76,7 +76,8 @@ PY
   if [ -n "$ENROLL_MODE" ] && [ -n "$ENVF" ] && [ -f "$ENVF" ] && ! grep -qE '^FB_AGENT_(CODE|ENROLL)=.+' "$ENVF"; then
     NEWENROLL="$(python3 -c 'import secrets; print(secrets.token_urlsafe(18))')"
     printf '\n# 一次性登记码：agent 第一次请求 POST agent-enroll 时登记自己的口令（只存指纹），用过就失效\nFB_AGENT_ENROLL=%s\n' "$NEWENROLL" >> "$ENVF"; echo "已在配置里加上一次性登记码"
-  elif [ -z "$ENROLL_MODE" ] && [ -n "$ENVF" ] && [ -f "$ENVF" ] && ! grep -qE '^FB_AGENT_CODE=.+' "$ENVF"; then
+  elif [ -z "$ENROLL_MODE" ] && [ -n "$ENVF" ] && [ -f "$ENVF" ] && ! grep -qE '^FB_AGENT_CODE=.+' "$ENVF" \
+       && [ "$(python3 -c 'import sqlite3,sys; c=sqlite3.connect(sys.argv[1]); print(c.execute("SELECT COUNT(*) FROM sqlite_master WHERE name=\"agent_keys\"").fetchone()[0] and c.execute("SELECT COUNT(*) FROM agent_keys").fetchone()[0])' "$DB" 2>/dev/null || echo 0)" = 0 ]; then
     NEWKEY="$(python3 -c 'import secrets; print(secrets.token_urlsafe(24))')"
     printf '\n# agent 专用口令（定时任务用：能发布、回滚、发汇总，不能拍板）\nFB_AGENT_CODE=%s\n' "$NEWKEY" >> "$ENVF"; echo "已在配置里加上 agent 口令"
   fi
