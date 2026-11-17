@@ -1,0 +1,12 @@
+# 在网站的 server { ... } 里加这一段：把 /api/fb/ 转给批注服务。
+# 前端文件也由服务提供（/api/fb/client/...），所以网站只要在页面里加一行 <script>。
+location ^~ /api/fb/ {
+    proxy_pass http://127.0.0.1:18810;
+    proxy_set_header Host $host;
+    proxy_set_header X-Real-IP $remote_addr;     # 用于限流（按来源 IP）
+    client_max_body_size 25m;                    # 截图和图片随请求上传
+    add_header X-Robots-Tag "noindex" always;
+}
+# 如果网站在子路径下（例如 /docs/），可以把接口也放在子路径下：
+#   location ^~ /docs/api/fb/ { proxy_pass http://127.0.0.1:18810; ... }
+# 同时启动服务时设置 FB_PREFIX=/docs/api/fb/ ，页面里写 <script src="/docs/api/fb/client/fb-loader.js" data-base="/docs/" defer></script>

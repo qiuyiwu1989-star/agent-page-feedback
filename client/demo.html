@@ -1,0 +1,34 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>演示页面 · agent-page-feedback</title>
+<style>
+  body { margin: 0; font: 16px/1.7 system-ui, -apple-system, "PingFang SC", "Microsoft YaHei", sans-serif; color: #1f2430; background: #f5f6f8; }
+  header { background: #1f2430; color: #fff; padding: 18px 32px; display: flex; gap: 24px; align-items: center; } header b { font-size: 18px; } header a { color: #cbd5e1; text-decoration: none; font-size: 14px; }
+  main { max-width: 1080px; margin: 0 auto; padding: 40px 24px 120px; }
+  h1 { font-size: 40px; line-height: 1.2; margin: 0 0 12px; } .lead { color: #475069; max-width: 40em; }
+  .grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 16px; margin-top: 32px; }
+  .card { background: #fff; border: 1px solid #e3e6ec; border-radius: 18px; padding: 22px; } .card h3 { margin: 0 0 6px; } .card p { margin: 0; color: #475069; font-size: 14.5px; }
+  .btn { display: inline-block; margin-top: 24px; padding: 10px 20px; border-radius: 99px; background: #2446b8; color: #fff; text-decoration: none; }
+  footer { padding: 24px 32px; color: #7a8399; font-size: 13px; border-top: 1px solid #e3e6ec; }
+  @media (max-width: 700px) { .grid { grid-template-columns: 1fr; } h1 { font-size: 30px; } }
+</style>
+</head>
+<body>
+<header><b>示例网站</b><a href="#">产品</a><a href="#">文档</a><a href="#">关于</a></header>
+<main>
+  <h1>一个用来试批注的页面</h1>
+  <p class="lead">在地址后面加上 <code>?fb=1</code> 打开，输入团队口令和姓名，左下角就会出现批注条：点「批注」，再点页面上任意位置，写下修改意见。</p>
+  <a class="btn" href="#">主要按钮</a>
+  <div class="grid">
+    <div class="card"><h3>卡片一</h3><p>这里的文字可以划选后批注，批注会引用选中的文字，并自动截一张位置图。</p></div>
+    <div class="card"><h3>卡片二</h3><p>批注会实时同步给团队里的其他人，也可以由 AI agent 读取并处理。</p></div>
+    <div class="card"><h3>卡片三</h3><p>处理结果写回到批注上，在汇总页可以看到完整的讨论和处理过程。</p></div>
+  </div>
+</main>
+<footer>agent-page-feedback 演示页</footer>
+<script src="fb-loader.js" data-title-suffix=" · agent-page-feedback" defer></script>
+</body>
+</html>

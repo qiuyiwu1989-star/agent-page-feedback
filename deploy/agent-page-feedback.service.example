@@ -1,0 +1,17 @@
+# systemd 服务：复制到 /etc/systemd/system/agent-page-feedback.service，改路径和用户后
+#   sudo systemctl daemon-reload && sudo systemctl enable --now agent-page-feedback
+[Unit]
+Description=agent-page-feedback (page annotations shared by people and AI agents)
+After=network.target
+
+[Service]
+User=www-data
+WorkingDirectory=/opt/agent-page-feedback
+# 口令等配置放在这个文件里（权限 600），不要写进代码仓库，格式见 .env.example
+EnvironmentFile=/opt/agent-page-feedback/.env
+ExecStart=/usr/bin/python3 -I /opt/agent-page-feedback/server/fb_server.py
+Restart=always
+RestartSec=3
+
+[Install]
+WantedBy=multi-user.target

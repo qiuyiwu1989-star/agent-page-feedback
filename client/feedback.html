@@ -1,0 +1,273 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex">
+<title>修改意见与协作复盘</title>
+<style>
+  /* 独立页面，自带配色；可以按项目改这几个变量 */
+  :root { --gutter: clamp(16px, 4vw, 48px); --ai: #4F46E5; --ai-bg: #EEF2FF; --canvas: #F5F6F8; --surface: #fff; --sunken: #EEF0F4; --ink: #1F2430; --ink-2: #475069; --ink-3: #7A8399; --line: #E3E6EC; --line-strong: #CDD2DC; --link: #2446B8; --brand: #2446B8; --blue-600: #2446B8;
+    --font-sans: system-ui, -apple-system, "PingFang SC", "Microsoft YaHei", sans-serif; }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--canvas); color: var(--ink); font-family: var(--font-sans); font-size: 15px; line-height: 1.65; -webkit-font-smoothing: antialiased; }
+  a { color: var(--link); } button, input, select, textarea { font: inherit; }
+  .wrap { width: min(100% - 2 * var(--gutter), 1280px); margin: 0 auto; }
+  main.wrap { padding-bottom: 88px; }
+  .hero { padding: 40px 0 8px; } .crumb { font-size: 13px; color: var(--ink-3); } .crumb a { color: var(--ink-2); text-decoration: none; }
+  .hero h1 { margin: 12px 0 6px; font-size: clamp(28px, 3.6vw, 40px); line-height: 1.2; display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
+  .badge { display: inline-flex; align-items: center; height: 26px; padding: 0 10px; border-radius: 99px; background: #FEF3C7; color: #92400E; font-size: 12.5px; font-weight: 600; }
+  .hero p { margin: 0; max-width: 58em; color: var(--ink-2); }
+  .how { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; margin: 20px 0 0; padding: 0; list-style: none; counter-reset: s; }
+  .how li { background: var(--surface); border: 1px solid var(--line); border-radius: 16px; padding: 14px 16px 14px 52px; position: relative; font-size: 13.5px; color: var(--ink-2); line-height: 1.7; counter-increment: s; }
+  .how li::before { content: counter(s); position: absolute; left: 16px; top: 14px; width: 24px; height: 24px; border-radius: 50%; background: #1f2430; color: #fff; display: grid; place-items: center; font-size: 12.5px; font-weight: 600; }
+  .how b { color: var(--ink); display: block; }
+  /* 总览 */
+  .ov { display: grid; grid-template-columns: repeat(6, minmax(0, 1fr)); gap: 12px; margin-top: 26px; }
+  .ov div { background: var(--surface); border: 1px solid var(--line); border-radius: 16px; padding: 14px 16px; }
+  .ov b { display: block; font-size: 26px; line-height: 1.15; font-variant-numeric: tabular-nums; } .ov span { font-size: 12.5px; color: var(--ink-3); }
+  .stack { display: flex; height: 10px; border-radius: 5px; overflow: hidden; background: var(--sunken); margin-top: 14px; } .stack i { display: block; height: 100%; }
+  .legend { display: flex; flex-wrap: wrap; gap: 6px 16px; margin-top: 8px; font-size: 12.5px; color: var(--ink-3); } .legend i { display: inline-block; width: 9px; height: 9px; border-radius: 50%; margin-right: 5px; vertical-align: 0; }
+  .people { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 18px; }
+  .pp { display: inline-flex; align-items: center; gap: 8px; height: 40px; padding: 0 14px 0 4px; border-radius: 99px; background: var(--surface); border: 1px solid var(--line); font-size: 13.5px; cursor: pointer; }
+  .pp[aria-pressed="true"] { border-color: #1f2430; box-shadow: 0 0 0 2px rgba(31,36,48,.12); } .pp small { color: var(--ink-3); font-size: 12px; }
+  .av { width: 32px; height: 32px; border-radius: 50%; display: inline-grid; place-items: center; color: #fff; font-weight: 700; font-size: 13.5px; flex: none; }
+  .av.ai { background: linear-gradient(135deg, #6366F1, #4338CA); font-size: 11.5px; letter-spacing: .02em; }
+  .av.sm { width: 24px; height: 24px; font-size: 11px; } .av.sm.ai { font-size: 9px; }
+  /* 工具条 */
+  .bar { display: flex; flex-wrap: wrap; align-items: center; gap: 10px 12px; margin-top: 18px; padding: 12px 16px; border-radius: 18px; background: var(--surface); border: 1px solid var(--line); position: sticky; top: 8px; z-index: 20; }
+  .seg { display: inline-flex; padding: 3px; border-radius: 99px; background: var(--sunken); } .seg button { height: 30px; padding: 0 14px; border: 0; border-radius: 99px; background: none; font-size: 13px; color: var(--ink-2); cursor: pointer; }
+  .seg button[aria-pressed="true"] { background: var(--surface); color: var(--ink); font-weight: 600; box-shadow: 0 1px 2px rgba(0,0,0,.08); }
+  .bar select, .bar input[type=search] { height: 34px; border-radius: 99px; border: 1px solid var(--line-strong); padding: 0 12px; font-size: 13px; background: var(--surface); color: var(--ink); max-width: 100%; }
+  .bar input[type=search] { flex: 1 1 160px; }
+  .btn { height: 34px; padding: 0 16px; border-radius: 99px; border: 1px solid var(--line-strong); background: var(--surface); font-size: 13.5px; cursor: pointer; color: var(--ink); white-space: nowrap; }
+  .btn.pri { background: #1f2430; border-color: #1f2430; color: #fff; } .btn.sm { height: 30px; padding: 0 12px; font-size: 12.5px; }
+  .acts { display: flex; flex-wrap: wrap; gap: 8px; margin-left: auto; }
+  /* 卡片墙 */
+  .group { margin-top: 30px; } .group h2 { font-size: 19px; margin: 0 0 12px; display: flex; gap: 10px; align-items: baseline; flex-wrap: wrap; }
+  .group h2 a { font-size: 13px; font-weight: 400; color: var(--ink-3); word-break: break-all; } .group h2 small { font-size: 13px; color: var(--ink-3); font-weight: 400; }
+  .cards { display: grid; gap: 14px; }
+  .cd { display: grid; grid-template-columns: 300px minmax(0, 1fr); background: var(--surface); border: 1px solid var(--line); border-radius: 18px; overflow: hidden; }
+  .cd.done { border-color: #BBF7D0; }
+  .shot { position: relative; background: var(--sunken); min-height: 180px; display: grid; place-items: center; color: var(--ink-3); font-size: 12.5px; border-right: 1px solid var(--line); }
+  .shot img { width: 100%; height: 100%; max-height: 300px; object-fit: cover; object-position: top center; cursor: zoom-in; display: block; }
+  .shot .lb { position: absolute; left: 10px; top: 10px; background: rgba(31,36,48,.78); color: #fff; font-size: 11.5px; padding: 2px 8px; border-radius: 99px; }
+  .shot .addshot { font-size: 12px; }
+  .cb { padding: 16px 18px; display: grid; gap: 10px; align-content: start; min-width: 0; }
+  .ch { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; } .ch .nm { font-weight: 600; } .ch .tm { font-size: 12.5px; color: var(--ink-3); }
+  .ch .id { font-weight: 700; color: var(--ink); text-decoration: none; font-size: 13px; }
+  .tag { padding: 1px 8px; border-radius: 99px; background: #f2f3f6; color: #374151; font-size: 12px; } .tag.hi { background: #FEE2E2; color: #B91C1C; }
+  .ch select { margin-left: auto; height: 30px; border-radius: 99px; border: 1.5px solid; padding: 0 8px; font-size: 12.5px; background: var(--surface); font-weight: 600; }
+  .q { margin: 0; padding: 4px 10px; border-left: 3px solid #F59E0B; background: #FFFBEB; color: #57534E; font-size: 13px; border-radius: 0 6px 6px 0; word-break: break-all; }
+  .body { margin: 0; font-size: 15.5px; line-height: 1.7; white-space: pre-wrap; word-break: break-word; }
+  .imgs { display: flex; flex-wrap: wrap; gap: 6px; } .imgs img { height: 64px; border-radius: 8px; border: 1px solid var(--line); cursor: zoom-in; background: var(--sunken); }
+  .thread { display: grid; gap: 8px; border-top: 1px dashed var(--line); padding-top: 10px; }
+  .msg { display: grid; grid-template-columns: 24px minmax(0, 1fr); gap: 8px; align-items: start; }
+  .msg .bub { background: var(--sunken); border-radius: 4px 12px 12px 12px; padding: 7px 11px; font-size: 13.5px; line-height: 1.65; white-space: pre-wrap; word-break: break-word; }
+  .msg .bub small { display: block; color: var(--ink-3); font-size: 11.5px; margin-bottom: 1px; }
+  .msg.ai .bub { background: var(--ai-bg); color: #1E1B4B; border: 1px solid #C7D2FE; } .msg.ai .bub small b { color: var(--ai); }
+  .msg.sys .bub { background: none; border: 0; padding: 3px 0; color: var(--ink-3); font-size: 12.5px; }
+  .msg.sys.ai .bub { background: var(--ai-bg); border: 1px solid #C7D2FE; padding: 7px 11px; color: #1E1B4B; font-size: 13.5px; }
+  .ok-tag { display: inline-block; font-size: 11px; font-weight: 700; color: #15803D; background: #DCFCE7; border-radius: 4px; padding: 0 5px; margin-right: 4px; }
+  .ra { display: flex; gap: 8px; align-items: center; } .ra input[type=text] { flex: 1; height: 34px; border: 1px solid var(--line-strong); border-radius: 99px; padding: 0 14px; font-size: 13px; min-width: 0; }
+  .ra label { font-size: 12.5px; color: var(--link); cursor: pointer; white-space: nowrap; } .ra label input { display: none; }
+  .pend { font-size: 12px; color: var(--ink-3); }
+  .del { border: 0; background: none; color: var(--ink-3); font-size: 12px; text-decoration: underline; cursor: pointer; }
+  /* 时间线 */
+  .tl { margin-top: 26px; display: grid; gap: 26px; }
+  .day h3 { margin: 0 0 10px; font-size: 15px; display: flex; gap: 10px; align-items: baseline; } .day h3 small { font-weight: 400; color: var(--ink-3); font-size: 12.5px; }
+  .evs { position: relative; display: grid; gap: 10px; padding-left: 22px; } .evs::before { content: ""; position: absolute; left: 11px; top: 6px; bottom: 6px; width: 2px; background: var(--line); }
+  .ev { position: relative; display: grid; grid-template-columns: 32px minmax(0, 1fr) auto; gap: 10px; align-items: start; background: var(--surface); border: 1px solid var(--line); border-radius: 14px; padding: 10px 12px; margin-left: 6px; }
+  .ev::before { content: ""; position: absolute; left: -19px; top: 18px; width: 10px; height: 10px; border-radius: 50%; background: var(--dot, #94A3B8); box-shadow: 0 0 0 3px var(--canvas); }
+  .ev .t { font-size: 14px; line-height: 1.6; } .ev .t b { font-weight: 600; } .ev .t a { color: var(--ink); font-weight: 600; text-decoration: none; } .ev .t a:hover { color: var(--brand); }
+  .ev .t p { margin: 3px 0 0; color: var(--ink-2); font-size: 13.5px; white-space: pre-wrap; word-break: break-word; }
+  .ev .tm { font-size: 12px; color: var(--ink-3); white-space: nowrap; } .ev img { height: 56px; border-radius: 8px; border: 1px solid var(--line); cursor: zoom-in; margin-top: 6px; }
+  .ev.ai { background: var(--ai-bg); border-color: #C7D2FE; }
+  .empty { text-align: center; color: var(--ink-3); padding: 60px 0; }
+  .gate { max-width: 420px; margin: 40px auto; background: var(--surface); border: 1px solid var(--line); border-radius: 18px; padding: 24px; }
+  .gate label { display: block; font-weight: 600; margin: 12px 0 4px; font-size: 14px; } .gate input { width: 100%; height: 38px; border: 1px solid var(--line-strong); border-radius: 10px; padding: 0 12px; }
+  .gate .err { color: #B91C1C; font-size: 13px; min-height: 1.4em; margin-top: 6px; }
+  dialog { border: 0; border-radius: 18px; padding: 0; width: min(860px, 94vw); box-shadow: 0 20px 60px rgba(15,20,35,.3); } dialog::backdrop { background: rgba(15,20,35,.4); }
+  .dlg { padding: 20px; } .dlg h3 { margin: 0 0 4px; } .dlg p { margin: 0 0 12px; color: var(--ink-2); font-size: 14px; }
+  .dlg textarea { width: 100%; height: 52vh; border: 1px solid var(--line-strong); border-radius: 10px; padding: 12px; font: 12.5px/1.6 ui-monospace, Menlo, Consolas, monospace; }
+  .dlg .row { display: flex; gap: 10px; justify-content: flex-end; margin-top: 12px; flex-wrap: wrap; align-items: center; } .dlg .row span { margin-right: auto; font-size: 13px; color: var(--ink-3); }
+  .agent { margin-top: 40px; padding: 18px 20px; border-radius: 16px; background: var(--surface); border: 1px solid var(--line); font-size: 14px; color: var(--ink-2); }
+  .agent h2 { font-size: 16px; margin: 0 0 6px; color: var(--ink); } .agent code, .agent pre { font: 12.5px/1.6 ui-monospace, Menlo, Consolas, monospace; }
+  .agent pre { background: #f6f7f9; padding: 10px 12px; border-radius: 10px; overflow-x: auto; margin: 8px 0; white-space: pre; }
+  @media (max-width: 1000px) { .ov { grid-template-columns: repeat(3, 1fr); } }
+  @media (max-width: 760px) { .how { grid-template-columns: 1fr; } .cd { grid-template-columns: 1fr; } .shot { border-right: 0; border-bottom: 1px solid var(--line); min-height: 120px; } .acts { margin-left: 0; } .ov { grid-template-columns: 1fr 1fr; } .bar { position: static; } .ev { grid-template-columns: 28px minmax(0, 1fr); } .ev .tm { grid-column: 2; } }
+</style>
+</head>
+<body>
+<main class="wrap">
+  <header class="hero"><nav class="crumb" id="crumb">agent-page-feedback</nav>
+    <h1>修改意见与协作复盘 <span class="badge">团队内部</span></h1>
+    <p>团队成员在网站各个页面上的批注都汇总在这里。每条意见附带批注位置截图，以及谁提的、谁回复了、AI 有没有改、改了什么。这里也是项目复盘的整体记录：「时间线」按日期列出提出、讨论和处理的全过程。</p>
+    <ol class="how">
+      <li><b>在页面上批注</b>打开任意页面，点左下角「批注」，再点要改的地方。会自动截一张位置图，也可以粘贴或添加更多图片。</li>
+      <li><b>在这里讨论</b>补充回复（可以带图）、标「待讨论」，或者合并重复的意见。</li>
+      <li><b>交给 agent，回来复盘</b>点「导出给 agent」发给 Claude / Codex。改完后 agent 写明改了什么，带 <span class="av sm ai" style="vertical-align:-6px">AI</span> 标记。</li>
+    </ol>
+  </header>
+  <div id="app"></div>
+</main>
+<dialog id="dlg"><div class="dlg"><h3 id="dlgT">导出</h3><p id="dlgP"></p>
+  <textarea id="md" readonly></textarea><div class="row"><span id="mdn"></span><button class="btn" id="dl">下载 .md</button><button class="btn" id="cls">关闭</button><button class="btn pri" id="cp">复制</button></div></div></dialog>
+
+<script src="fb-media.js"></script>
+<script>
+(() => {
+  const $ = s => document.querySelector(s), $$ = s => [...document.querySelectorAll(s)];
+  const esc = s => String(s == null ? '' : s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]);
+  // 接口地址：默认是本页所在目录的上一级（本页由服务器在 {PREFIX}client/feedback.html 提供）；也可以用 ?api= 指定
+  const API = new URLSearchParams(location.search).get('api') || new URL('../', location.href).href, M = window.APFMedia;
+  const KIND = { bug: '问题', suggest: '建议', copy: '文案', style: '样式', data: '内容有误' };
+  const STAT = { open: '待处理', doing: '处理中', question: '待讨论', done: '已改好', wontfix: '不改' };
+  const SCOL = { open: '#C2410C', doing: '#1D4ED8', question: '#7C3AED', done: '#15803D', wontfix: '#6B7280' };
+  const LS = { get: k => { try { return localStorage.getItem('apf:' + k) || ''; } catch (e) { return ''; } }, set: (k, v) => { try { v ? localStorage.setItem('apf:' + k, v) : localStorage.removeItem('apf:' + k); } catch (e) {} } };
+  if (!LS.get('cid')) LS.set('cid', Math.random().toString(36).slice(2) + Date.now().toString(36));
+  const when = t => { const d = new Date(t * 1000); return (d.getMonth() + 1) + '-' + d.getDate() + ' ' + d.toTimeString().slice(0, 5); };
+  const dayOf = t => { const d = new Date(t * 1000); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`; };
+  const dur = s => s < 3600 ? Math.max(1, Math.round(s / 60)) + ' 分钟' : s < 86400 ? (s / 3600).toFixed(1) + ' 小时' : (s / 86400).toFixed(1) + ' 天';
+  const isAI = n => /^(claude|codex)$/i.test(String(n || '').trim());
+  // 同一个人可能用了不同写法（如拼音和中文名），只按写法区分，不擅自合并
+  const COLS = ['#E8743B', '#14A37F', '#3D63F5', '#B8336A', '#0E9FB8', '#8E6AD8', '#D97706', '#475569'];
+  const colOf = n => { let h = 0; for (const ch of String(n)) h = (h * 31 + ch.codePointAt(0)) >>> 0; return COLS[h % COLS.length]; };
+  const av = (n, sm) => isAI(n) ? `<span class="av ai${sm ? ' sm' : ''}" title="${esc(n)}">AI</span>` : `<span class="av${sm ? ' sm' : ''}" style="background:${colOf(n)}" title="${esc(n)}">${esc(String(n || '?').trim().slice(0, 1).toUpperCase())}</span>`;
+  async function api(path, body) {
+    const r = await fetch(API + path, { method: body ? 'POST' : 'GET', headers: { 'Content-Type': 'application/json', 'X-FB-Code': LS.get('code'), 'X-FB-Name': encodeURIComponent(LS.get('name')), 'X-FB-Cid': LS.get('cid') }, body: body ? JSON.stringify(body) : undefined, cache: 'no-store' });
+    if ((r.headers.get('content-type') || '').includes('markdown')) return r.text();
+    const j = await r.json().catch(() => ({ error: '服务器没有响应（' + r.status + '）' })); if (!r.ok) throw Object.assign(new Error(j.error || '出错了'), { status: r.status }); return j; }
+
+  let ITEMS = [], role = '', VIEW = 'cards', F = { st: 'all', kind: '', who: '', page: '', q: '' };
+  const isOpen = it => it.status !== 'done' && it.status !== 'wontfix';
+  const doneAt = it => { const r = [...it.replies].reverse().find(x => x.kind === 'status' && /已改好|不改/.test(x.body)); return r && r.created; };
+
+  function gate(msg) {
+    $('#app').innerHTML = `<form class="gate"><b>输入团队口令</b><p style="margin:6px 0 0;color:var(--ink-3);font-size:13.5px">${msg || '批注只对团队成员开放。口令找项目负责人要。'}</p>
+      <label>团队口令</label><input type="password" id="gc" autocomplete="off"><label>你的姓名</label><input type="text" id="gn" maxlength="20" value="${esc(LS.get('name'))}">
+      <div class="err" id="ge"></div><button class="btn pri" style="width:100%;height:40px">进入</button></form>`;
+    $('.gate').onsubmit = async e => { e.preventDefault(); const c = $('#gc').value.trim(), n = $('#gn').value.trim(); if (!c || !n) { $('#ge').textContent = '口令和姓名都要填'; return; }
+      LS.set('code', c); LS.set('name', n); try { await load(); } catch (er) { LS.set('code', ''); $('#ge').textContent = er.message; } };
+  }
+  async function load() { const r = await api('items?all=1'); ITEMS = r.items; role = r.role; render(); }
+
+  // 每个人：提出几条、回复几条；AI：处理几条
+  function people() { const P = {};
+    ITEMS.forEach(it => { (P[it.author] = P[it.author] || { raised: 0, replies: 0, handled: new Set() }).raised++;
+      it.replies.forEach(r => { const p = (P[r.author] = P[r.author] || { raised: 0, replies: 0, handled: new Set() }); if (r.kind === 'status') p.handled.add(it.id); else p.replies++; }); });
+    return Object.entries(P).sort((a, b) => (isAI(b[0]) - isAI(a[0])) || (b[1].raised - a[1].raised)); }
+
+  function render() {
+    const its = ITEMS, n = its.length, cnt = k => its.filter(it => it.status === k).length, fixed = its.filter(it => it.status === 'done');
+    const ds = fixed.map(it => doneAt(it) && doneAt(it) - it.created).filter(x => x > 0), avg = ds.length ? ds.reduce((a, b) => a + b, 0) / ds.length : 0;
+    const aiN = its.filter(it => it.replies.some(r => isAI(r.author))).length, shots = its.filter(it => (it.files || []).some(f => f.kind === 'shot')).length;
+    const pages = [...new Map(its.map(it => [it.page, it.title || it.page])).entries()], PP = people();
+    $('#app').innerHTML = `<div class="ov">
+        <div><b>${n}</b><span>条批注 · ${pages.length} 个页面</span></div>
+        <div><b style="color:#15803D">${fixed.length}</b><span>已改好${n ? ' · ' + Math.round(fixed.length / n * 100) + '%' : ''}</span></div>
+        <div><b style="color:#C2410C">${its.filter(isOpen).length}</b><span>未完成（待处理 / 处理中 / 待讨论）</span></div>
+        <div><b>${avg ? dur(avg) : '—'}</b><span>从提出到改好的平均用时</span></div>
+        <div><b style="color:var(--ai)">${aiN}</b><span>条由 AI 处理或回复</span></div>
+        <div><b>${shots}</b><span>条带位置截图</span></div></div>
+      <div class="stack">${Object.keys(STAT).map(k => cnt(k) ? `<i style="width:${cnt(k) / n * 100}%;background:${SCOL[k]}" title="${STAT[k]} ${cnt(k)}"></i>` : '').join('')}</div>
+      <div class="legend">${Object.entries(STAT).map(([k, v]) => `<span><i style="background:${SCOL[k]}"></i>${v} ${cnt(k)}</span>`).join('')}</div>
+      <div class="people">${PP.map(([nm, p]) => `<button class="pp" data-who="${esc(nm)}" aria-pressed="${F.who === nm}">${av(nm)}<span>${esc(nm)}</span><small>${isAI(nm) ? `处理 ${p.handled.size} 条` : `提出 ${p.raised}${p.replies ? ' · 回复 ' + p.replies : ''}`}</small></button>`).join('')}</div>
+      <div class="bar"><span class="seg"><button data-v="cards" aria-pressed="${VIEW === 'cards'}">卡片</button><button data-v="tl" aria-pressed="${VIEW === 'tl'}">时间线 · 复盘</button></span>
+        <select id="fs"><option value="all">全部状态</option><option value="todo"${F.st === 'todo' ? ' selected' : ''}>未完成</option>${Object.entries(STAT).map(([k, v]) => `<option value="${k}"${F.st === k ? ' selected' : ''}>${v}</option>`).join('')}</select>
+        <select id="fk"><option value="">全部类型</option>${Object.entries(KIND).map(([k, v]) => `<option value="${k}"${F.kind === k ? ' selected' : ''}>${v}</option>`).join('')}</select>
+        <select id="fp"><option value="">全部页面</option>${pages.map(([p, t]) => `<option value="${esc(p)}"${F.page === p ? ' selected' : ''}>${esc(t)}</option>`).join('')}</select>
+        <input type="search" id="fq" placeholder="搜意见、回复" value="${esc(F.q)}">
+        <span class="acts"><button class="btn" id="rf">刷新</button><button class="btn" id="exr">导出复盘报告</button><button class="btn pri" id="ex">导出给 agent</button></span></div>
+      <div id="list"></div>
+      <section class="agent"><h2>agent 怎么读取和回写</h2>
+        <p>口令放在请求头 <code>X-FB-Code</code> 里（找负责人要，不要写进代码仓库或共享文档）。读取未完成的修改清单（含截图地址）：</p>
+        <pre>curl -s -H "X-FB-Code: $FB_CODE" "${esc(new URL(API, location.href).href)}export.md"</pre>
+        <p>改完一条，把它标为「已改好」并写明改了什么（署名用 Claude / Codex，页面上会显示 AI 标记）：</p>
+        <pre>curl -s -X POST -H "X-FB-Code: $FB_CODE" -H "X-FB-Name: Claude" -H "Content-Type: application/json" \\
+  -d '{"status":"done","note":"改了什么"}' "${esc(new URL(API, location.href).href)}items/编号/status"</pre>
+        <p>截图读取：<code>files/附件编号</code>（同样带口令）；补传截图：<code>POST items/编号/shot {"shot":"data:image/jpeg;base64,…"}</code>。</p></section>`;
+    $$('.seg [data-v]').forEach(b => b.onclick = () => { VIEW = b.dataset.v; render(); });
+    $$('.pp').forEach(b => b.onclick = () => { F.who = F.who === b.dataset.who ? '' : b.dataset.who; render(); });
+    $('#fs').onchange = e => { F.st = e.target.value; renderList(); }; $('#fk').onchange = e => { F.kind = e.target.value; renderList(); }; $('#fp').onchange = e => { F.page = e.target.value; renderList(); };
+    $('#fq').oninput = e => { F.q = e.target.value.trim(); renderList(); };
+    $('#rf').onclick = () => load().catch(er => alert(er.message)); $('#ex').onclick = exportMd; $('#exr').onclick = exportReview;
+    renderList();
+  }
+  const pass = it => { const q = F.q.toLowerCase();
+    return (F.st === 'all' || (F.st === 'todo' ? isOpen(it) : it.status === F.st)) && (!F.kind || it.kind === F.kind) && (!F.page || it.page === F.page)
+      && (!F.who || it.author === F.who || it.replies.some(r => r.author === F.who)) && (!q || (it.body + ' ' + (it.quote || '') + ' ' + it.replies.map(r => r.body).join(' ')).toLowerCase().includes(q)); };
+  const href = it => { const u = it.url || it.page; return u + (u.includes('?') ? '&' : '?') + 'fbid=' + it.id; };
+  function renderList() { const rows = ITEMS.filter(pass), box = $('#list');
+    if (!rows.length) { box.innerHTML = `<div class="empty">${ITEMS.length ? '没有符合筛选条件的批注。' : '还没有批注。打开任意页面，点左下角「批注」开始。'}</div>`; return; }
+    box.innerHTML = VIEW === 'tl' ? timeline(rows) : cards(rows); M && M.hydrate(box); }
+
+  // ---------- 卡片墙：按页面分组，左侧位置截图，右侧意见与对话 ----------
+  function cards(rows) { const by = new Map(); rows.forEach(it => { if (!by.has(it.page)) by.set(it.page, []); by.get(it.page).push(it); });
+    return [...by.entries()].map(([p, its]) => `<section class="group"><h2>${esc(its[0].title || p)} <small>${its.length} 条</small><a href="${esc(its[0].url || p)}" target="_blank">${esc(p)} ↗</a></h2><div class="cards">${its.sort((a, b) => a.id - b.id).map(card).join('')}</div></section>`).join(''); }
+  function card(it) { const shot = (it.files || []).find(f => f.kind === 'shot'), imgs = (it.files || []).filter(f => f.kind !== 'shot');
+    return `<article class="cd ${it.status === 'done' ? 'done' : ''}" data-id="${it.id}">
+      <div class="shot">${shot ? `<img data-fid="${shot.id}" alt="#${it.id} 批注位置截图"><span class="lb">批注位置</span>` : `<span>没有位置截图<br><a class="addshot" href="${esc(href(it))}" target="_blank">到页面上看位置 ↗</a></span>`}</div>
+      <div class="cb"><div class="ch">${av(it.author)}<span class="nm">${esc(it.author)}</span><span class="tm">${when(it.created)} · ${esc(it.device || '桌面')}</span>
+        <a class="id" href="${esc(href(it))}" target="_blank" title="到页面上定位">#${it.id} ↗</a><span class="tag${it.kind === 'bug' ? ' hi' : ''}">${KIND[it.kind] || ''}</span>${it.priority === 'high' ? '<span class="tag hi">优先级高</span>' : it.priority === 'low' ? '<span class="tag">优先级低</span>' : ''}
+        <select class="st" style="color:${SCOL[it.status]};border-color:${SCOL[it.status]}">${Object.entries(STAT).map(([k, v]) => `<option value="${k}"${k === it.status ? ' selected' : ''}>${v}</option>`).join('')}</select></div>
+        ${it.quote ? `<p class="q">${esc(it.quote)}</p>` : ''}<p class="body">${esc(it.body)}</p>
+        ${imgs.length ? `<div class="imgs">${imgs.map(f => `<img data-fid="${f.id}" alt="附图">`).join('')}</div>` : ''}
+        ${it.replies.length ? `<div class="thread">${it.replies.map(msg).join('')}</div>` : ''}
+        <div class="ra"><input type="text" placeholder="回复…（可粘贴图片）" maxlength="1000"><label>图片<input type="file" accept="image/png,image/jpeg,image/webp,image/gif" multiple></label><button class="btn sm rp">回复</button>${it.mine || role === 'admin' ? '<button class="del">删除</button>' : ''}</div>
+        <div class="pend"></div></div></article>`; }
+  function msg(r) { const ai = isAI(r.author), sys = r.kind === 'status', m = sys && r.body.match(/^把状态改为「(.+?)」：?([\s\S]*)$/);
+    const text = m ? (m[1] === '已改好' ? '<span class="ok-tag">已改好</span>' : `<b>改为「${esc(m[1])}」</b> `) + esc(m[2]) : esc(r.body);
+    return `<div class="msg ${ai ? 'ai' : ''} ${sys ? 'sys' : ''}">${av(r.author, 1)}<div class="bub"><small><b>${esc(r.author)}</b>${ai ? ' · AI' : ''} · ${when(r.created)}</small>${text}${(r.files || []).length ? `<div class="imgs" style="margin-top:6px">${r.files.map(f => `<img data-fid="${f.id}" alt="附图">`).join('')}</div>` : ''}</div></div>`; }
+
+  // ---------- 时间线 · 复盘：提出、回复、处理，按日期 ----------
+  function timeline(rows) { const ev = [];
+    rows.forEach(it => { ev.push({ t: it.created, who: it.author, it, type: 'new' }); it.replies.forEach(r => ev.push({ t: r.created, who: r.author, it, r, type: r.kind === 'status' ? 'status' : 'reply' })); });
+    ev.sort((a, b) => a.t - b.t); const by = new Map(); ev.forEach(e => { const d = dayOf(e.t); if (!by.has(d)) by.set(d, []); by.get(d).push(e); });
+    const DOT = { new: '#F59E0B', reply: '#94A3B8', status: '#15803D' };
+    return `<div class="tl">${[...by.entries()].map(([d, es]) => { const nNew = es.filter(e => e.type === 'new').length, nFix = es.filter(e => e.type === 'status' && /已改好/.test(e.r.body)).length;
+      return `<div class="day"><h3>${d} <small>新提出 ${nNew} 条 · 改好 ${nFix} 条 · 共 ${es.length} 个动作</small></h3><div class="evs">${es.map(e => { const it = e.it, link = `<a href="${esc(href(it))}" target="_blank">#${it.id} ${esc((it.title || it.page).slice(0, 20))}</a>`;
+        const shot = e.type === 'new' && (it.files || []).find(f => f.kind === 'shot');
+        const t = e.type === 'new' ? `<b>${esc(e.who)}</b> 提出 ${link}<p>${esc(it.body)}</p>${shot ? `<img data-fid="${shot.id}" alt="#${it.id} 批注位置截图">` : ''}`
+          : e.type === 'status' ? `<b>${esc(e.who)}</b> ${/已改好/.test(e.r.body) ? '改好了' : '更新了'} ${link}<p>${esc(e.r.body.replace(/^把状态改为「(.+?)」：?/, '状态：$1。'))}</p>`
+          : `<b>${esc(e.who)}</b> 回复 ${link}<p>${esc(e.r.body)}</p>${(e.r.files || []).map(f => `<img data-fid="${f.id}" alt="附图">`).join('')}`;
+        return `<div class="ev ${isAI(e.who) ? 'ai' : ''}" style="--dot:${isAI(e.who) ? 'var(--ai)' : DOT[e.type]}">${av(e.who)}<div class="t">${t}</div><span class="tm">${new Date(e.t * 1000).toTimeString().slice(0, 5)}</span></div>`; }).join('')}</div></div>`; }).join('')}</div>`; }
+
+  // ---------- 操作 ----------
+  const upd = it => { const i = ITEMS.findIndex(x => x.id === it.id); if (i >= 0) ITEMS[i] = it; const y = scrollY; render(); scrollTo(0, y); };
+  const PEND = new Map();
+  const addPend = async (cd, files) => { const id = +cd.dataset.id, a = PEND.get(id) || []; for (const f of files) { try { a.push(await M.readImage(f)); } catch (e) { alert(e.message); } } PEND.set(id, a); cd.querySelector('.pend').textContent = a.length ? `已添加 ${a.length} 张图片，点「回复」一起发送` : ''; };
+  document.addEventListener('change', async e => {
+    if (e.target.matches('.ra label input')) { addPend(e.target.closest('.cd'), [...e.target.files]); e.target.value = ''; return; }
+    const s = e.target.closest('.cd .st'); if (!s) return; const id = +s.closest('.cd').dataset.id;
+    const note = s.value === 'done' || s.value === 'wontfix' ? (prompt('补一句说明（可不填）', '') || '') : '';
+    try { upd((await api(`items/${id}/status`, { status: s.value, note })).item); } catch (er) { alert(er.message); } });
+  document.addEventListener('paste', e => { const inp = e.target.closest && e.target.closest('.ra input[type=text]'); if (!inp) return; const fs = [...(e.clipboardData || {}).files || []].filter(f => f.type.startsWith('image/')); if (fs.length) { e.preventDefault(); addPend(inp.closest('.cd'), fs); } });
+  document.addEventListener('click', async e => {
+    const img = e.target.closest('img[data-fid]'); if (img && img.src) { M.lightbox(img.src, img.alt); return; }
+    const cd = e.target.closest('.cd'); if (!cd) return; const id = +cd.dataset.id;
+    if (e.target.closest('.rp')) { const inp = cd.querySelector('.ra input[type=text]'), pend = PEND.get(id) || []; if (!inp.value.trim() && !pend.length) return; e.target.disabled = true;
+      try { upd((await api(`items/${id}/reply`, { body: inp.value.trim(), images: pend })).item); PEND.delete(id); } catch (er) { alert(er.message); e.target.disabled = false; } }
+    if (e.target.closest('.del')) { if (!confirm('删除批注 #' + id + '？')) return; try { await api(`items/${id}/delete`, {}); ITEMS = ITEMS.filter(x => x.id !== id); render(); } catch (er) { alert(er.message); } } });
+  document.addEventListener('keydown', e => { if (e.key === 'Enter' && e.target.matches('.ra input[type=text]')) e.target.closest('.cd').querySelector('.rp').click(); });
+
+  // ---------- 导出 ----------
+  const show = (title, desc, md, n) => { $('#dlgT').textContent = title; $('#dlgP').textContent = desc; $('#md').value = md; $('#mdn').textContent = n; $('#dlg').showModal(); };
+  async function exportMd() { const st = F.st === 'todo' || F.st === 'all' ? 'open,doing,question' : F.st;
+    try { const md = await api('export.md?status=' + st); show('给 agent 的修改清单', '按页面分组、高优先级在前，带定位信息、截图地址和讨论记录。复制后直接发给 agent 即可。', md, (md.match(/^### #/gm) || []).length + ' 条'); } catch (er) { alert(er.message); } }
+  function exportReview() { const its = ITEMS.slice().sort((a, b) => a.id - b.id), PP = people(), fixed = its.filter(it => it.status === 'done');
+    const out = [`# 网站协作复盘（${new Date().toLocaleString('zh-CN')}）`, '', `- 批注 ${its.length} 条，涉及 ${new Set(its.map(i => i.page)).size} 个页面；已改好 ${fixed.length} 条，未完成 ${its.filter(isOpen).length} 条`,
+      `- 参与者：${PP.map(([n, p]) => isAI(n) ? `${n}（AI，处理 ${p.handled.size} 条）` : `${n}（提出 ${p.raised} 条${p.replies ? '，回复 ' + p.replies + ' 条' : ''}）`).join('；')}`, ''];
+    its.forEach(it => { const d = doneAt(it); out.push(`## #${it.id} ${it.title || it.page}（${STAT[it.status]}）`, `- 提出：${it.author}，${when(it.created)}；类型：${KIND[it.kind] || ''}${d ? `；用时 ${dur(d - it.created)}` : ''}`, `- 页面：${it.url || it.page}`);
+      if (it.quote) out.push(`- 位置：${it.quote.slice(0, 80)}`); out.push('', it.body, '');
+      it.replies.forEach(r => out.push(`- ${r.author}${isAI(r.author) ? '（AI）' : ''}，${when(r.created)}：${r.body}${(r.files || []).length ? `（附图 ${r.files.length} 张）` : ''}`)); out.push(''); });
+    show('协作复盘报告', '全部批注按编号排列：谁提的、怎么讨论、谁改的、用了多久。可以作为项目复盘的原始记录。', out.join('\n'), its.length + ' 条'); }
+  $('#cls').onclick = () => $('#dlg').close();
+  $('#cp').onclick = () => { const t = $('#md'); t.select(); (navigator.clipboard ? navigator.clipboard.writeText(t.value) : Promise.reject()).then(() => $('#cp').textContent = '已复制', () => { document.execCommand('copy'); $('#cp').textContent = '已复制'; }); setTimeout(() => $('#cp').textContent = '复制', 1800); };
+  $('#dl').onclick = () => { const a = document.createElement('a'); a.href = URL.createObjectURL(new Blob([$('#md').value], { type: 'text/markdown' })); a.download = $('#dlgT').textContent + '-' + new Date().toISOString().slice(0, 10) + '.md'; a.click(); };
+
+  if (!LS.get('code')) gate(); else load().catch(er => { if (er.status === 401) { LS.set('code', ''); gate('口令已失效，请重新输入。'); } else $('#app').innerHTML = `<div class="empty">${esc(er.message)}</div>`; });
+})();
+</script>
+</body>
+</html>
