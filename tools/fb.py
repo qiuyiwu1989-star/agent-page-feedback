@@ -45,12 +45,29 @@ def call(path, body=None, raw=False):
 BASE = '.fb-base.json'
 
 
+def server_file(rel):
+    """先问批注服务（有源文件目录时取的是源文件）；服务器不支持时返回 None，改从正式站取。"""
+    h = {'X-FB-Key': KEY, 'X-FB-Name': urllib.parse.quote(NAME)}
+    try:
+        with urllib.request.urlopen(urllib.request.Request(API + 'site-file?path=' + urllib.parse.quote(rel), headers=h), timeout=60) as r: return json.loads(r.read())
+    except urllib.error.HTTPError as e:
+        msg = e.read().decode('utf-8', 'replace')
+        if e.code == 400 and ('源文件' in msg or '路径' in msg or '生成器' in msg): sys.exit(json.loads(msg).get('error', msg))
+        return None
+
+
 def fetch(work, paths):
     site = os.environ.get('FB_SITE_URL', '').rstrip('/') + '/'
-    if site == '/': sys.exit('请设置 FB_SITE_URL，例如 https://example.com/site/')
-    bf = os.path.join(work, BASE); base = json.load(open(bf)) if os.path.exists(bf) else {}
+    os.makedirs(work, exist_ok=True); bf = os.path.join(work, BASE); base = json.load(open(bf)) if os.path.exists(bf) else {}
     for rel in paths:
         rel = rel.strip('/'); dst = os.path.join(work, rel)
+        sf = server_file(rel) if API != '/' else None
+        if sf is not None:
+            if sf['b64'] is None: base[rel] = None; print(f'  {rel}：还没有这个文件（会作为新文件）'); continue
+            b = base64.b64decode(sf['b64']); os.makedirs(os.path.dirname(dst) or '.', exist_ok=True)
+            with open(dst, 'wb') as f: f.write(b)
+            base[rel] = sf['sha']; print(f'  {rel}：{len(b)} 字节（{"源文件" if sf["source"] else "网站"}）'); continue
+        if site == '/': sys.exit('服务器不支持取文件，请设置 FB_SITE_URL 从正式站取，例如 https://example.com/site/')
         try:
             with urllib.request.urlopen(urllib.request.Request(site + urllib.parse.quote(rel), headers={'Cache-Control': 'no-cache'}), timeout=60) as r: b = r.read()
         except urllib.error.HTTPError as e:

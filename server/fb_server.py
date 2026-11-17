@@ -56,6 +56,7 @@
                                  飞书地址只在服务器上。汇总也存进数据库（digests），GET digests 查看
   POST deploy                    发布（只限 agent / 管理员口令）{ref, items: [编号], note, bundle} → {deploy: {id, status: running}}；同一时间只跑一个
                                  bundle：按文件发布的发布包（tar.gz 的 base64，不超过 20 MB），传给脚本 FB_DEPLOY_BUNDLE，见 tools/deploy_files.py
+  GET  site-file?path=网站路径    取一个文件的当前版本（有源文件目录时取源文件），给按文件发布用（只限 agent / 管理员口令）→ {path, source, sha, b64}
   GET  deploys / deploys/<id>    发布登记（编号、谁、哪些任务、版本、状态、输出末尾）
   POST deploys/<id>/rollback     把整个网站恢复到第 <id> 次发布之前（只限 agent / 管理员口令；会新登记一次 rollback）
   GET  stats                     统计：各状态数量、一次通过率、平均交付用时、返工次数
@@ -341,7 +342,7 @@ class H(BaseHTTPRequestHandler):
                     return self.send(200, {'generated': time.strftime('%Y-%m-%d %H:%M'), 'prefs': [r['text'] for r in c.execute('SELECT text FROM prefs WHERE active=1 ORDER BY id')],
                                            'summary': {'act': len(act), 'triage_new': sum(1 for r in tri if not r['triaged']), 'waiting': len(g('question')), 'review': len(g('review'))},
                                            'act': act, 'triage': tri, 'waiting': g('question'), 'review': g('review')})
-                if p in ('digest', 'digests', 'deploy') or p.startswith('deploys'):
+                if p in ('digest', 'digests', 'deploy', 'site-file') or p.startswith('deploys'):
                     return self.ops(c, method, p, role, name)
                 if method == 'GET' and p == 'stats':
                     return self.send(200, stats(c))
@@ -396,6 +397,17 @@ class H(BaseHTTPRequestHandler):
             return self.send(200, {'digests': [dict(r) for r in c.execute('SELECT * FROM digests ORDER BY id DESC LIMIT 200')]})
         if method == 'GET' and p == 'deploys':
             return self.send(200, {'deploys': [dict(r) for r in c.execute('SELECT * FROM deploys ORDER BY id DESC LIMIT 200')], 'enabled': bool(DEPLOY_CMD)})
+        if method == 'GET' and p == 'site-file':
+            if role not in ('agent', 'admin'): return self.send(403, {'error': '只有 agent 口令或管理员口令可以取文件'})
+            if not DEPLOY_CMD: return self.send(400, {'error': '服务器上没有设置发布脚本（FB_DEPLOY_CMD）'})
+            import shlex, subprocess
+            env = {k: v for k, v in os.environ.items() if k not in ('FB_TEAM_CODE', 'FB_ADMIN_CODE', 'FB_AGENT_CODE', 'FB_NOTIFY_URL')}
+            env.update(FB_DEPLOY_ACTION='read', FB_READ_PATH=clip(parse_qs(urlparse(self.path).query).get('path', [''])[0], 500), FB_DB=DB)
+            try: r = subprocess.run(shlex.split(DEPLOY_CMD), env=env, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, timeout=30)
+            except (OSError, subprocess.TimeoutExpired) as e: return self.send(500, {'error': f'取文件失败：{e}'})
+            out = r.stdout.decode('utf-8', 'replace').strip()
+            if r.returncode == 0 and out.startswith('{'): return self.send(200, json.loads(out))
+            return self.send(400, {'error': out[-500:] or '发布脚本不支持取文件'})
         dm = re.fullmatch(r'deploys/(\d+)', p)
         if method == 'GET' and dm:
             r = c.execute('SELECT * FROM deploys WHERE id=?', (int(dm.group(1)),)).fetchone()

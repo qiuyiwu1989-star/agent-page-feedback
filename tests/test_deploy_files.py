@@ -88,3 +88,48 @@ class DeployFilesTest(unittest.TestCase):
 
 if __name__ == '__main__':
     unittest.main()
+
+
+class SourceModeTest(DeployFilesTest):
+    """有源文件目录（FB_SITE_SOURCE + deploy-map.json）：先改源文件，再复制到网站；生成器产出的页面不能改。"""
+    @classmethod
+    def setUpClass(cls):
+        cls.tmp = tempfile.TemporaryDirectory(); t = cls.tmp.name
+        cls.site = os.path.join(t, 'site'); cls.src = os.path.join(t, 'src')
+        for d in (os.path.join(cls.site, 'ui21'), cls.src): os.makedirs(d)
+        for rel, txt in (('ui21/ui21.css', 'h1{}'), ('plan.html', '<p>计划</p>'), ('gen.html', '<p>生成器产出</p>')): cls.put(rel, txt)
+        for rel, txt in (('ui21.css', 'h1{}'), ('plan.html', '<p>计划</p>'), ('build.py', 'print(1)')):
+            with open(os.path.join(cls.src, rel), 'w', encoding='utf-8') as f: f.write(txt)
+        with open(os.path.join(cls.src, 'deploy-map.json'), 'w') as f:
+            json.dump({'ui21.css': 'ui21/ui21.css', 'build*.py': None, 'deploy-map.json': None, '*.html': 'same'}, f)
+        cls.web = ThreadingHTTPServer(('127.0.0.1', 0), functools.partial(Quiet, directory=cls.site)); threading.Thread(target=cls.web.serve_forever, daemon=True).start()
+        cls.port = free_port()
+        env = dict(os.environ, FB_TEAM_CODE='t', FB_AGENT_CODE='agent-key-1234567', FB_DB=os.path.join(t, 'data', 'fb.db'), FB_PORT=str(cls.port),
+                   FB_DEPLOY_CMD=f'{sys.executable} -I {ROOT}/tools/deploy_files.py', FB_SITE_ROOT=cls.site, FB_SITE_SOURCE=cls.src)
+        cls.proc = subprocess.Popen([sys.executable, '-I', os.path.join(ROOT, 'server', 'fb_server.py')], env=env, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        for _ in range(50):
+            try: urllib.request.urlopen(f'http://127.0.0.1:{cls.port}/api/fb/client/fb-loader.js', timeout=1).close(); break
+            except Exception: time.sleep(.1)
+        cls.env = dict(os.environ, FB_API=f'http://127.0.0.1:{cls.port}/api/fb/', FB_KEY='agent-key-1234567')
+        for k in ('HTTP_PROXY', 'HTTPS_PROXY', 'http_proxy', 'https_proxy'): cls.env.pop(k, None)
+
+    def src_text(self, rel):
+        with open(os.path.join(self.src, rel), encoding='utf-8') as f: return f.read()
+
+    def test_deploy_conflict_rollback(self):
+        w = os.path.join(self.tmp.name, 's1')
+        code, out = self.fb('fetch', w, 'ui21/ui21.css', 'plan.html'); self.assertEqual(code, 0, out); self.assertIn('源文件', out)
+        self.edit(w, 'ui21/ui21.css', 'h1{color:red}')
+        code, out = self.fb('deploy', '--dir', w, '--item', '3'); self.assertEqual(code, 0, out)
+        d1 = int(out.rsplit('deploy#', 1)[1].split()[0])
+        self.assertEqual(self.src_text('ui21.css'), 'h1{color:red}'); self.assertEqual(self.get('ui21/ui21.css'), 'h1{color:red}')   # 源文件和网站都改了
+        # 生成器产出的页面：不能直接改
+        code, out = self.fb('fetch', os.path.join(self.tmp.name, 's2'), 'gen.html'); self.assertNotEqual(code, 0); self.assertIn('生成器', out)
+        # 源文件有还没发布的改动 → 冲突
+        w3 = os.path.join(self.tmp.name, 's3'); self.fb('fetch', w3, 'plan.html')
+        with open(os.path.join(self.src, 'plan.html'), 'w', encoding='utf-8') as f: f.write('<p>计划（别人改了源文件还没发布）</p>')
+        self.fb('fetch', w3, 'plan.html'); self.edit(w3, 'plan.html', '<p>计划 v2</p>')
+        code, out = self.fb('deploy', '--dir', w3); self.assertNotEqual(code, 0); self.assertIn('不一致', out); self.assertEqual(self.get('plan.html'), '<p>计划</p>')
+        # 回滚：源文件和网站都恢复
+        code, out = self.fb('rollback', str(d1)); self.assertEqual(code, 0, out)
+        self.assertEqual(self.src_text('ui21.css'), 'h1{}'); self.assertEqual(self.get('ui21/ui21.css'), 'h1{}')
