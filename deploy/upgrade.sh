@@ -2,6 +2,8 @@
 # 一键升级已经在运行的批注服务（systemd）。在解压后的新版目录里运行：
 #   sudo bash deploy/upgrade.sh 服务名            例如 sudo bash deploy/upgrade.sh zjuid-feedback
 #   sudo bash deploy/upgrade.sh 服务名 --force    服务器上的文件改过也照样覆盖（先看清楚报告）
+#   sudo bash deploy/upgrade.sh 服务名 --enroll   不生成 agent 口令，改为生成一次性登记码（口令由负责人自己定、存进云端环境，
+#                                                  第一次请求 POST agent-enroll 时登记指纹；谁也不用看到口令）
 #
 # 它会：
 #   1. 从 systemd 找到这个服务的程序位置、配置文件、数据库；
@@ -12,7 +14,8 @@
 #   6. 顺便列出网站是怎么提供的（nginx 配置、网站目录、是不是 git 仓库），用来写发布脚本。不打印任何口令。
 set -euo pipefail
 NEW="$(cd "$(dirname "$0")/.." && pwd)"
-SVC="${1:-}"; FORCE="${2:-}"
+SVC="${1:-}"; FORCE=""; ENROLL_MODE=""
+for a in "${@:2}"; do case "$a" in --force) FORCE=--force;; --enroll) ENROLL_MODE=1;; esac; done
 say() { printf '\n== %s\n' "$*"; }
 [ -n "$SVC" ] || { echo "用法：sudo bash deploy/upgrade.sh 服务名"; systemctl list-units --type=service --all --no-legend | grep -i -E 'feedback|fb' || true; exit 2; }
 [ "$(id -u)" = 0 ] || { echo "请用 sudo 运行"; exit 2; }
@@ -24,14 +27,15 @@ SERVER_FILE="$(printf '%s\n' "$EXEC" | tr ' ' '\n' | grep -m1 'fb_server\.py$' |
 ENVF="$(printf '%s\n' "$UNIT" | sed -n 's/^EnvironmentFile=-\{0,1\}//p' | tail -1)"
 RUNAS="$(printf '%s\n' "$UNIT" | sed -n 's/^User=//p' | tail -1)"; RUNAS="${RUNAS:-root}"
 [ -f "$SERVER_FILE" ] || { echo "在 ExecStart 里没找到 fb_server.py：$EXEC"; exit 2; }
-getenv() { # 先看 unit 里的 Environment=，再看 EnvironmentFile
-  local v; v="$(printf '%s\n' "$UNIT" | grep -o "Environment=.*$1=[^ \"]*" | sed "s/.*$1=//" | tail -1)"
-  [ -z "$v" ] && [ -f "$ENVF" ] && v="$(grep -E "^$1=" "$ENVF" | tail -1 | cut -d= -f2-)"; printf '%s' "$v"; }
-CLIENT_DIR="$(getenv FB_CLIENT_DIR)"; CLIENT_DIR="${CLIENT_DIR:-$(cd "$(dirname "$SERVER_FILE")/.." && pwd)/client}"
-DB="$(getenv FB_DB)"; DB="${DB:-$(cd "$(dirname "$SERVER_FILE")/.." && pwd)/data/fb.db}"
+getenv() { # systemd 里 EnvironmentFile 的值优先于 Environment=，这里也一样
+  local v=""; [ -n "$ENVF" ] && [ -f "$ENVF" ] && v="$(grep -E "^$1=" "$ENVF" | tail -1 | cut -d= -f2- || true)"
+  [ -z "$v" ] && v="$(printf '%s\n' "$UNIT" | grep -o "Environment=.*$1=[^ \"]*" | sed "s/.*$1=//" | tail -1 || true)"; printf '%s' "$v"; }
+# 程序目录：server/fb_server.py 布局取上一级；fb_server.py 直接放在目录里的布局取本目录
+SD="$(cd "$(dirname "$SERVER_FILE")" && pwd)"; if [ "$(basename "$SD")" = server ]; then APP="$(dirname "$SD")"; else APP="$SD"; fi
+CLIENT_DIR="$(getenv FB_CLIENT_DIR)"; CLIENT_DIR="${CLIENT_DIR:-$(dirname "$SD")/client}"
+DB="$(getenv FB_DB)"; DB="${DB:-$(dirname "$SD")/data/fb.db}"
 PORT="$(getenv FB_PORT)"; PORT="${PORT:-18810}"; PREFIX="$(getenv FB_PREFIX)"; PREFIX="/$(printf '%s' "${PREFIX:-/api/fb/}" | sed 's#^/*##; s#/*$##')/"
-APP="$(cd "$(dirname "$SERVER_FILE")/.." && pwd)"
-echo "程序：$SERVER_FILE"; echo "前端：$CLIENT_DIR"; echo "数据库：$DB"; echo "配置：${ENVF:-（没有 EnvironmentFile）}"; echo "端口：$PORT  前缀：$PREFIX  运行用户：$RUNAS"
+echo "程序目录：$APP"; echo "程序：$SERVER_FILE"; echo "前端：$CLIENT_DIR"; echo "数据库：$DB"; echo "配置：${ENVF:-（没有 EnvironmentFile）}"; echo "端口：$PORT  前缀：$PREFIX  运行用户：$RUNAS"
 
 say "2. 检查服务器上的程序是不是原版"
 FILES="server/fb_server.py client/fb-loader.js client/feedback.js client/fb-media.js client/feedback.html client/demo.html"
@@ -68,8 +72,11 @@ PY
   mkdir -p "$APP/tools" "$APP/deploy" "$APP/docs"; cp -a "$NEW/tools/." "$APP/tools/"
   cp -a "$NEW/deploy/deploy.sh.example" "$APP/deploy/"; cp -a "$NEW/docs/autopilot.md" "$APP/docs/"
   chown -R "$RUNAS" "$CLIENT_DIR" "$APP/tools" 2>/dev/null || true
-  NEWKEY=""
-  if [ -n "$ENVF" ] && [ -f "$ENVF" ] && ! grep -qE '^FB_AGENT_CODE=.+' "$ENVF"; then
+  NEWKEY=""; NEWENROLL=""
+  if [ -n "$ENROLL_MODE" ] && [ -n "$ENVF" ] && [ -f "$ENVF" ] && ! grep -qE '^FB_AGENT_(CODE|ENROLL)=.+' "$ENVF"; then
+    NEWENROLL="$(python3 -c 'import secrets; print(secrets.token_urlsafe(18))')"
+    printf '\n# 一次性登记码：agent 第一次请求 POST agent-enroll 时登记自己的口令（只存指纹），用过就失效\nFB_AGENT_ENROLL=%s\n' "$NEWENROLL" >> "$ENVF"; echo "已在配置里加上一次性登记码"
+  elif [ -z "$ENROLL_MODE" ] && [ -n "$ENVF" ] && [ -f "$ENVF" ] && ! grep -qE '^FB_AGENT_CODE=.+' "$ENVF"; then
     NEWKEY="$(python3 -c 'import secrets; print(secrets.token_urlsafe(24))')"
     printf '\n# agent 专用口令（定时任务用：能发布、回滚、发汇总，不能拍板）\nFB_AGENT_CODE=%s\n' "$NEWKEY" >> "$ENVF"; echo "已在配置里加上 agent 口令"
   fi
@@ -78,9 +85,12 @@ PY
   systemctl restart "$SVC"; okk=""
   TEAM="$(getenv FB_TEAM_CODE)"; AG="$(getenv FB_AGENT_CODE)"
   for i in $(seq 1 30); do
-    r="$(curl -s -m 3 -H "X-FB-Key: $AG" "http://127.0.0.1:$PORT${PREFIX}ping" || true)"
-    case "$r" in *'"role": "agent"'*) okk=1; break;; esac; sleep 1
+    r="$(curl -s -m 3 -H "X-FB-Code: $TEAM" "http://127.0.0.1:$PORT${PREFIX}ping" || true)"
+    case "$r" in *'"ok": true'*) okk=1; break;; esac; sleep 1
   done
+  if [ -n "$okk" ] && [ -n "$AG" ]; then
+    case "$(curl -s -m 3 -H "X-FB-Key: $AG" "http://127.0.0.1:$PORT${PREFIX}ping" || true)" in *'"role": "agent"'*) ;; *) okk="";; esac
+  fi
   q="$(curl -s -m 5 -H "X-FB-Code: $TEAM" "http://127.0.0.1:$PORT${PREFIX}queue.json" || true)"
   case "$q" in *'"summary"'*) ;; *) okk="";; esac
   if [ -z "$okk" ]; then
@@ -88,7 +98,7 @@ PY
     install -m 644 "$BK/fb_server.py" "$SERVER_FILE"; rm -rf "$CLIENT_DIR"; cp -a "$BK/client" "$CLIENT_DIR"; [ -f "$BK/env" ] && cp -a "$BK/env" "$ENVF"
     systemctl restart "$SVC"; journalctl -u "$SVC" -n 30 --no-pager; echo "已恢复到升级前。"; exit 1
   fi
-  echo "升级成功：服务在运行，agent 口令可用，任务清单正常。"
+  echo "升级成功：服务在运行，口令可用，任务清单正常。"
   printf '%s' "$q" | python3 -c 'import json,sys; s=json.load(sys.stdin)["summary"]; print("当前任务：可以执行 %d · 待分诊（新）%d · 待决定 %d · 待验收 %d" % (s["act"], s["triage_new"], s["waiting"], s["review"]))'
 fi
 
@@ -103,6 +113,10 @@ done
 which coscli coscmd 2>/dev/null | sed 's/^/  对象存储工具：/' || true
 { ls -d /home/ubuntu/*/ 2>/dev/null || true; } | sed "s/^/  目录：/"
 
+if [ -n "${NEWENROLL:-}" ]; then
+  say "一次性登记码（用过一次就失效）"
+  echo "$NEWENROLL"
+fi
 if [ -n "${NEWKEY:-}" ]; then
   say "agent 口令（只显示这一次）"
   echo "$NEWKEY"

@@ -10,6 +10,8 @@
   FB_ADMIN_CODE   选填。管理员口令：另外可以删除任何人的批注、修改任何批注
   FB_AGENT_CODE   选填。agent 专用口令：权限同成员，另外可以发布（deploy）、回滚、发汇总（digest）；不能拍板。
                   给定时任务用，只存在云端环境的密钥里
+  FB_AGENT_ENROLL 选填。一次性登记码：带着它请求 POST agent-enroll，服务器把请求头 X-FB-Key 里的口令（至少 16 位）记为 agent 口令
+                  （只存指纹）。用于口令由云端环境的密钥自动加到请求头、谁也不用看到口令本身的情况。登记码用过一次就失效
   FB_DEPLOY_CMD   选填。发布脚本（固定路径，例如 /home/ubuntu/zjuid-feedback/deploy.sh）。设置后才有 deploy 接口；
                   脚本从环境变量读 FB_DEPLOY_ACTION（deploy / rollback）、FB_DEPLOY_ID、FB_DEPLOY_REF、FB_ROLLBACK_ID，
                   服务器和对象存储的密钥只放在服务器上，agent 拿不到。样例见 deploy/deploy.sh.example
@@ -67,7 +69,7 @@
                                  （choice 的取值可以按项目改，见 CHOICES）
   GET  client/<file>             前端文件（不要口令）
 """
-import base64, json, os, re, secrets, sqlite3, threading, time, hmac
+import base64, hashlib, json, os, re, secrets, sqlite3, threading, time, hmac
 from collections import defaultdict, deque
 from http.server import ThreadingHTTPServer, BaseHTTPRequestHandler
 from urllib.parse import urlparse, parse_qs, unquote
@@ -88,6 +90,8 @@ STATUSES = {'open': '待处理', 'question': '待决定', 'approved': '可以做
 ACTIONS = {'approve': ('可以做', 'approved'), 'choose': ('选方案', 'approved'), 'accept': ('通过', 'done'), 'rework': ('再改', 'approved'),
            'revert': ('改回来', 'approved'), 'wontfix': ('不改', 'wontfix'), 'reopen': ('重新打开', 'open')}
 AGENT = os.environ.get('FB_AGENT_CODE', '')
+ENROLL = os.environ.get('FB_AGENT_ENROLL', '')
+AGENT_HASHES = set()   # 登记过的 agent 口令指纹（sha256）
 DEPLOY_CMD = os.environ.get('FB_DEPLOY_CMD', '').strip()
 DEPLOY_TIMEOUT = int(os.environ.get('FB_DEPLOY_TIMEOUT', '900'))
 AI_NAMES = {x.strip().lower() for x in os.environ.get('FB_AI_NAMES', 'Claude,Codex').split(',') if x.strip()}
@@ -139,6 +143,8 @@ def init():
         c.executescript('''CREATE TABLE IF NOT EXISTS digests (id INTEGER PRIMARY KEY AUTOINCREMENT, title TEXT, markdown TEXT, buttons TEXT, author TEXT, sent INTEGER, created REAL);
         CREATE TABLE IF NOT EXISTS deploys (id INTEGER PRIMARY KEY AUTOINCREMENT, action TEXT, ref TEXT, items TEXT, note TEXT, rollback_of INTEGER,
           author TEXT, status TEXT, output TEXT, created REAL, finished REAL);''')
+        c.execute('CREATE TABLE IF NOT EXISTS agent_keys (hash TEXT PRIMARY KEY, enroll TEXT, created REAL)')
+        AGENT_HASHES.update(r[0] for r in c.execute('SELECT hash FROM agent_keys'))
         # 服务重启时还在跑的发布，结果不明
         c.execute("UPDATE deploys SET status='unknown', finished=? WHERE status='running'", (time.time(),))
         c.executescript('''CREATE TABLE IF NOT EXISTS prefs (id INTEGER PRIMARY KEY AUTOINCREMENT, text TEXT NOT NULL, item INTEGER, author TEXT, created REAL, active INTEGER DEFAULT 1);''')
@@ -202,6 +208,7 @@ class H(BaseHTTPRequestHandler):
         code = self.headers.get('X-FB-Code', '') or self.headers.get('X-FB-Key', '') or (parse_qs(urlparse(self.path).query).get('code') or [''])[0]
         if ADMIN and hmac.compare_digest(code, ADMIN): return 'admin'
         if AGENT and hmac.compare_digest(code, AGENT): return 'agent'
+        if code and AGENT_HASHES and sha(code) in AGENT_HASHES: return 'agent'
         if TEAM and hmac.compare_digest(code, TEAM): return 'team'
         return None
 
@@ -218,7 +225,9 @@ class H(BaseHTTPRequestHandler):
         if not u.path.startswith(PREFIX): return self.send(404, {'error': 'not found'})
         p = u.path[len(PREFIX):].strip('/'); qs = {k: v[0] for k, v in parse_qs(u.query).items()}
         if method == 'GET' and (p == 'client' or p.startswith('client/')): return self.static(p[7:] or 'feedback.html')
-        ip = self.ip(); role = self.role()
+        ip = self.ip()
+        if method == 'POST' and p == 'agent-enroll': return self.enroll(ip)
+        role = self.role()
         if role is None:
             if limited(FAILS, ip, 10, 600): return self.send(429, {'error': '尝试次数太多，请 10 分钟后再试'})
             return self.send(401, {'error': '口令不对'})
@@ -369,6 +378,17 @@ class H(BaseHTTPRequestHandler):
             return self.send(400, {'error': str(e)})
         return self.send(404, {'error': 'not found'})
 
+    def enroll(self, ip):
+        """一次性登记 agent 口令：X-FB-Enroll 是服务器上的登记码，X-FB-Key 是要登记的口令（只存指纹）。"""
+        tok, key = self.headers.get('X-FB-Enroll', ''), self.headers.get('X-FB-Key', '')
+        if limited(FAILS, ip, 10, 600): return self.send(429, {'error': '尝试次数太多，请 10 分钟后再试'})
+        if not ENROLL or not hmac.compare_digest(tok, ENROLL): return self.send(401, {'error': '登记码不对'})
+        if len(key) < 16: return self.send(400, {'error': 'agent 口令至少 16 位'})
+        with LOCK, db() as c:
+            if c.execute('SELECT 1 FROM agent_keys WHERE enroll=?', (sha(ENROLL),)).fetchone(): return self.send(409, {'error': '这个登记码已经用过了'})
+            c.execute('INSERT OR REPLACE INTO agent_keys (hash, enroll, created) VALUES (?,?,?)', (sha(key), sha(ENROLL), time.time()))
+        AGENT_HASHES.add(sha(key)); return self.send(200, {'ok': True, 'role': 'agent'})
+
     def ops(self, c, method, p, role, name):
         """agent 的汇总推送与发布登记。只限 agent / 管理员口令。"""
         if method == 'GET' and p in ('digest', 'digests'):
@@ -459,6 +479,8 @@ def push(payload):
             urllib.request.urlopen(urllib.request.Request(NOTIFY_URL, data=json.dumps(payload, ensure_ascii=False).encode(), headers={'Content-Type': 'application/json'}), timeout=10).read()
         except Exception: pass
     threading.Thread(target=go, daemon=True).start()
+
+def sha(v): return hashlib.sha256(v.encode()).hexdigest()
 
 def triaged(item):
     """待分诊的任务里，agent 已经回复过、之后没有人再说话的，算已分诊（等负责人点「可以做」），定时任务不用再看。"""

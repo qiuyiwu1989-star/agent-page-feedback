@@ -33,7 +33,7 @@ class ServerTest(unittest.TestCase):
                     'open(%r, "a").write("|".join([e["FB_DEPLOY_ACTION"], e["FB_DEPLOY_ID"], e["FB_DEPLOY_REF"], e["FB_ROLLBACK_ID"], str("FB_TEAM_CODE" in e)]) + "\\n")\n'
                     'time.sleep(float(e["FB_DEPLOY_REF"][5:]) if e["FB_DEPLOY_REF"].startswith("slow-") else 0)\n'
                     'print("done", e["FB_DEPLOY_ID"]); sys.exit(1 if e["FB_DEPLOY_REF"] == "bad" else 0)\n' % cls.log)
-        env = dict(os.environ, FB_TEAM_CODE='team-code', FB_ADMIN_CODE='admin-code', FB_AGENT_CODE='agent-key', FB_DB=os.path.join(cls.tmp.name, 'fb.db'), FB_PORT=str(cls.port), FB_SITE='https://example.com/',
+        env = dict(os.environ, FB_TEAM_CODE='team-code', FB_ADMIN_CODE='admin-code', FB_AGENT_CODE='agent-key', FB_AGENT_ENROLL='enroll-once', FB_DB=os.path.join(cls.tmp.name, 'fb.db'), FB_PORT=str(cls.port), FB_SITE='https://example.com/',
                    FB_NOTIFY_URL=f'http://127.0.0.1:{cls.hook.server_port}/hook', FB_DEPLOY_CMD=f'{sys.executable} -I {script}')
         cls.proc = subprocess.Popen([sys.executable, '-I', os.path.join(ROOT, 'server', 'fb_server.py')], env=env, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
         cls.base = f'http://127.0.0.1:{cls.port}/api/fb/'
@@ -187,6 +187,24 @@ class ServerTest(unittest.TestCase):
                 except Exception: time.sleep(.1)
             self.assertEqual(q['triage'][0]['body'], '旧批注'); self.assertEqual(q['triage'][0]['marks'], [])
         finally: p.terminate(); p.wait(5)
+
+    def test_agent_enroll(self):
+        """一次性登记：口令由云端代理加到请求头，谁也不用看到；登记码只能用一次；只存指纹。"""
+        def enroll(tok, key):
+            r = urllib.request.Request(self.base + 'agent-enroll', data=b'{}', headers={'X-FB-Enroll': tok, 'X-FB-Key': key})
+            try:
+                with urllib.request.urlopen(r) as x: return x.status
+            except urllib.error.HTTPError as e: return e.code
+        self.assertEqual(enroll('wrong', 'k' * 20), 401)
+        self.assertEqual(enroll('enroll-once', 'short'), 400)
+        self.assertEqual(self.req('ping', key='owner-made-up-key-123')[0], 401)
+        self.assertEqual(enroll('enroll-once', 'owner-made-up-key-123'), 200)
+        self.assertEqual(json.loads(self.req('ping', key='owner-made-up-key-123')[1])['role'], 'agent')
+        self.assertEqual(enroll('enroll-once', 'another-key-0000000'), 409)   # 用过就失效
+        self.assertEqual(self.req('ping', key='another-key-0000000')[0], 401)
+        import sqlite3
+        with sqlite3.connect(os.path.join(self.tmp.name, 'fb.db')) as c: stored = [r[0] for r in c.execute('SELECT hash FROM agent_keys')]
+        self.assertNotIn('owner-made-up-key-123', stored)                      # 数据库里只有指纹
 
     def test_agent_key(self):
         """agent 口令可以用 X-FB-Key 请求头（云端环境的密钥只能存这类名字）；权限同成员，不能拍板。"""
