@@ -14,6 +14,11 @@ deploy-map.json 的写法（键是源文件里的路径，值是网站路径；n
    "*.html": "same",              通配，网站路径和源文件路径相同
    "build*.py": null}             不发布
   匹配顺序：精确 → 最长的目录前缀 → 通配（按出现顺序）。
+  也支持结构化写法（和别的发布脚本共用一份时更清楚）：
+  {"files": {"ui21.css": "ui21/ui21.css", ...},
+   "dirs": {"plan/syllabi/": {"to": "plan/syllabi/", "match": "*.json", "recursive": false}, ...},
+   "keep_if_exists": {"course-media.js": {"to": "course-media.js"}}}   以网站上的为准的文件：agent 不改，交给人
+  没列出的一律不发布。
 
 agent 一律用网站路径（例如 ui21/ui21.css）。发布包（tools/fb.py deploy --dir 生成）是 tar.gz：
   files/<网站路径>   新内容
@@ -60,6 +65,15 @@ def load_map():
 def site_of(srel, m):
     """源文件路径 → 网站路径（None = 不发布）。"""
     if m is None: return srel
+    if isinstance(m.get('files'), dict) or isinstance(m.get('dirs'), dict):     # 结构化写法
+        if srel in (m.get('files') or {}): return m['files'][srel]
+        for k in sorted(m.get('dirs') or {}, key=len, reverse=True):
+            if not srel.startswith(k): continue
+            d = m['dirs'][k]; rest = srel[len(k):]
+            if d.get('recursive') is False and '/' in rest: return None
+            pats = d.get('match', '*'); pats = [pats] if isinstance(pats, str) else pats
+            return d['to'] + rest if any(fnmatch.fnmatchcase(os.path.basename(rest), x) for x in pats) else None
+        return None
     if srel in m: return m[srel]
     pre = sorted((k for k in m if k.endswith('/') and srel.startswith(k)), key=len, reverse=True)
     if pre:
@@ -74,6 +88,17 @@ def source_of(site_rel, m):
     """网站路径 → 源文件路径。没有源文件目录时返回 ''（直接改网站）；有源文件目录但对应不上时返回 None。"""
     if not SRC: return ''
     if m is None: return site_rel
+    if isinstance(m.get('files'), dict) or isinstance(m.get('dirs'), dict):
+        for k, v in (m.get('keep_if_exists') or {}).items():
+            if (v.get('to') if isinstance(v, dict) else v) == site_rel:
+                raise SystemExit(f'{site_rel} 以网站上的为准（{(v.get("why") if isinstance(v, dict) else "") or "keep_if_exists"}），agent 不改，请交给负责人。')
+        for k, v in (m.get('files') or {}).items():
+            if v == site_rel: return k
+        for k, d in sorted((m.get('dirs') or {}).items(), key=lambda kv: -len(kv[0])):
+            if site_rel.startswith(d.get('to', '')):
+                cand = k + site_rel[len(d['to']):]
+                if site_of(cand, m) == site_rel: return cand
+        return None
     for k, v in m.items():                               # 精确对应
         if v == site_rel and not k.endswith('/') and not any(c in k for c in '*?['): return k
     for k, v in sorted(m.items(), key=lambda kv: -len(kv[0])):   # 目录前缀

@@ -407,7 +407,7 @@ class H(BaseHTTPRequestHandler):
             except (OSError, subprocess.TimeoutExpired) as e: return self.send(500, {'error': f'取文件失败：{e}'})
             out = r.stdout.decode('utf-8', 'replace').strip()
             if r.returncode == 0 and out.startswith('{'): return self.send(200, json.loads(out))
-            return self.send(400, {'error': out[-500:] or '发布脚本不支持取文件'})
+            return self.send(400, {'error': '发布脚本不支持取文件' if not out or '不认识的动作' in out else out[-500:]})
         dm = re.fullmatch(r'deploys/(\d+)', p)
         if method == 'GET' and dm:
             r = c.execute('SELECT * FROM deploys WHERE id=?', (int(dm.group(1)),)).fetchone()

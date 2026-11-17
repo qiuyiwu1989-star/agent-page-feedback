@@ -52,8 +52,10 @@ def server_file(rel):
         with urllib.request.urlopen(urllib.request.Request(API + 'site-file?path=' + urllib.parse.quote(rel), headers=h), timeout=60) as r: return json.loads(r.read())
     except urllib.error.HTTPError as e:
         msg = e.read().decode('utf-8', 'replace')
-        if e.code == 400 and ('源文件' in msg or '路径' in msg or '生成器' in msg): sys.exit(json.loads(msg).get('error', msg))
-        return None
+        if e.code == 404 or (e.code == 400 and ('没有设置发布脚本' in msg or '不支持取文件' in msg)): return None   # 服务器不支持：改从正式站取
+        try: msg = json.loads(msg).get('error', msg)
+        except ValueError: pass
+        sys.exit(f'取不到 {rel}：{msg}')
 
 
 def fetch(work, paths):

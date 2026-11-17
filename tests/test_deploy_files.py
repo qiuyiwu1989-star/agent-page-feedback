@@ -50,6 +50,7 @@ class DeployFilesTest(unittest.TestCase):
         return r.returncode, r.stdout + r.stderr
 
     def edit(self, work, rel, text):
+        os.makedirs(os.path.dirname(os.path.join(work, rel)), exist_ok=True)
         with open(os.path.join(work, rel), 'w', encoding='utf-8') as f: f.write(text)
 
     def test_deploy_conflict_rollback(self):
@@ -101,7 +102,10 @@ class SourceModeTest(DeployFilesTest):
         for rel, txt in (('ui21.css', 'h1{}'), ('plan.html', '<p>计划</p>'), ('build.py', 'print(1)')):
             with open(os.path.join(cls.src, rel), 'w', encoding='utf-8') as f: f.write(txt)
         with open(os.path.join(cls.src, 'deploy-map.json'), 'w') as f:
-            json.dump({'ui21.css': 'ui21/ui21.css', 'build*.py': None, 'deploy-map.json': None, '*.html': 'same'}, f)
+            json.dump({'version': 1, 'files': {'ui21.css': 'ui21/ui21.css', 'plan.html': 'plan.html'},
+                       'dirs': {'plan/syllabi/': {'to': 'plan/syllabi/', 'match': '*.json', 'recursive': False}},
+                       'keep_if_exists': {'course-media.js': {'to': 'course-media.js', 'why': '可能直接在服务器上填过'}},
+                       'not_deployed': {'build_*.py': '脚本'}}, f)
         cls.web = ThreadingHTTPServer(('127.0.0.1', 0), functools.partial(Quiet, directory=cls.site)); threading.Thread(target=cls.web.serve_forever, daemon=True).start()
         cls.port = free_port()
         env = dict(os.environ, FB_TEAM_CODE='t', FB_AGENT_CODE='agent-key-1234567', FB_DB=os.path.join(t, 'data', 'fb.db'), FB_PORT=str(cls.port),
@@ -130,6 +134,12 @@ class SourceModeTest(DeployFilesTest):
         with open(os.path.join(self.src, 'plan.html'), 'w', encoding='utf-8') as f: f.write('<p>计划（别人改了源文件还没发布）</p>')
         self.fb('fetch', w3, 'plan.html'); self.edit(w3, 'plan.html', '<p>计划 v2</p>')
         code, out = self.fb('deploy', '--dir', w3); self.assertNotEqual(code, 0); self.assertIn('不一致', out); self.assertEqual(self.get('plan.html'), '<p>计划</p>')
+        # 目录规则：新文件按 match 发布；以网站为准的文件不改
+        w4 = os.path.join(self.tmp.name, 's4'); os.makedirs(os.path.join(self.site, 'plan', 'syllabi'), exist_ok=True); os.makedirs(os.path.join(self.src, 'plan', 'syllabi'), exist_ok=True)
+        self.fb('fetch', w4, 'plan/syllabi/CS1.json'); self.edit(w4, 'plan/syllabi/CS1.json', '{}')
+        code, out = self.fb('deploy', '--dir', w4); self.assertEqual(code, 0, out); self.assertEqual(self.src_text('plan/syllabi/CS1.json'), '{}'); self.assertEqual(self.get('plan/syllabi/CS1.json'), '{}')
+        code, out = self.fb('fetch', w4, 'plan/syllabi/x.txt'); self.assertNotEqual(code, 0)
+        self.put('course-media.js', 'x'); code, out = self.fb('fetch', w4, 'course-media.js'); self.assertNotEqual(code, 0); self.assertIn('以网站上的为准', out)
         # 回滚：源文件和网站都恢复
         code, out = self.fb('rollback', str(d1)); self.assertEqual(code, 0, out)
         self.assertEqual(self.src_text('ui21.css'), 'h1{}'); self.assertEqual(self.get('ui21/ui21.css'), 'h1{}')
