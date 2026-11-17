@@ -39,7 +39,8 @@
 接口（都在 {PREFIX} 下，除 client/ 外都要口令）：
   GET  ping                      检查口令，返回 {ok, role}
   GET  items?page=&status=&all=1 列表（含回复与附件）
-  POST items                     新建批注 {page, url, title, selector, quote, rx, ry, px, py, vw, vh, device, kind, priority, body, shot, images}
+  POST items                     新建批注 {page, url, title, selector, quote, rx, ry, px, py, vw, vh, device, kind, priority, body, shot, images, marks}
+                                 marks：[{t: region, x, y, w, h}]（页面上框选的区域，页面像素）和 [{t: pen / rect, x, y, w, h}]（在截图上画的，按截图宽高的比例）
   POST items/<id>/reply          回复 {body, images}
   POST items/<id>/status         改状态 {status, note}；status 见 STATUSES
   POST items/<id>/decide         负责人的决定（只限管理员口令）{action, option, note}
@@ -143,7 +144,7 @@ def init():
         c.executescript('''CREATE TABLE IF NOT EXISTS prefs (id INTEGER PRIMARY KEY AUTOINCREMENT, text TEXT NOT NULL, item INTEGER, author TEXT, created REAL, active INTEGER DEFAULT 1);''')
         # 旧库升级：缺的列补上（v1 → v2）
         for t, col, typ in (('items', 'url', 'TEXT'), ('items', 'arole', 'TEXT'), ('items', 'signal', 'TEXT'), ('items', 'signal_note', 'TEXT'),
-                            ('items', 'signal_by', 'TEXT'), ('items', 'signal_at', 'REAL'), ('replies', 'role', 'TEXT'), ('replies', 'meta', 'TEXT')):
+                            ('items', 'signal_by', 'TEXT'), ('items', 'signal_at', 'REAL'), ('replies', 'role', 'TEXT'), ('replies', 'meta', 'TEXT'), ('items', 'marks', 'TEXT')):
             if col not in [r[1] for r in c.execute(f'PRAGMA table_info({t})')]: c.execute(f'ALTER TABLE {t} ADD COLUMN {col} {typ}')
 
 def clip(v, n):
@@ -160,7 +161,17 @@ def row_item(c, r):
         except ValueError: x['meta'] = None
         x['ai'] = is_ai(x['author']); d['replies'].append(x)
     d['ai'] = is_ai(d.get('author'))
+    try: d['marks'] = json.loads(d['marks']) if d.get('marks') else []
+    except ValueError: d['marks'] = []
     d.pop('cid', None); return d
+
+def clean_marks(v):
+    """框选区域 / 截图上的圈画：只留类型和外框数字。"""
+    out = []
+    for m in (v if isinstance(v, list) else [])[:30]:
+        if isinstance(m, dict) and m.get('t') in ('region', 'pen', 'rect'):
+            out.append({'t': m['t'], **{k: round(num(m.get(k)), 3) for k in ('x', 'y', 'w', 'h')}})
+    return json.dumps(out) if out else None
 
 def is_ai(name): return (name or '').strip().lower() in AI_NAMES
 
@@ -228,10 +239,10 @@ class H(BaseHTTPRequestHandler):
                     d = self.body(); txt = clip(d.get('body'), 4000).strip(); page = clip(d.get('page'), 300).strip()
                     if not txt or not page: return self.send(400, {'error': '请写下意见'})
                     now = time.time()
-                    cur = c.execute('INSERT INTO items (page,url,title,selector,quote,rx,ry,px,py,vw,vh,device,kind,priority,body,author,cid,status,created,updated,arole) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)',
+                    cur = c.execute('INSERT INTO items (page,url,title,selector,quote,rx,ry,px,py,vw,vh,device,kind,priority,body,author,cid,status,created,updated,arole,marks) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)',
                         (page, clip(d.get('url'), 1000), clip(d.get('title'), 200), clip(d.get('selector'), 600), clip(d.get('quote'), 400), num(d.get('rx')), num(d.get('ry')), num(d.get('px')), num(d.get('py')),
                          int(num(d.get('vw'))), int(num(d.get('vh'))), clip(d.get('device'), 20), d.get('kind') if d.get('kind') in KINDS else 'suggest',
-                         d.get('priority') if d.get('priority') in PRIOS else 'mid', txt, name, cid, 'open', now, now, role))
+                         d.get('priority') if d.get('priority') in PRIOS else 'mid', txt, name, cid, 'open', now, now, role, clean_marks(d.get('marks'))))
                     if d.get('shot'): save_files(c, cur.lastrowid, None, 'shot', [d['shot']], name, MAX_SHOT)
                     save_files(c, cur.lastrowid, None, 'image', d.get('images'), name, MAX_IMG)
                     r = c.execute('SELECT * FROM items WHERE id=?', (cur.lastrowid,)).fetchone(); out = row_item(c, r); out['mine'] = True
@@ -508,6 +519,9 @@ def export_md(rows, st, prefs=()):
             out.append(f'- 页面：{page_url(r)}')
             if r['quote']: out.append(f'- 位置：「{r["quote"]}」')
             out.append(f'- 定位：`{r["selector"] or "（页面整体）"}`　屏幕 {r["vw"]}×{r["vh"]}（{r["device"] or "桌面"}）')
+            mk = r.get('marks') or []; reg = [m for m in mk if m['t'] == 'region']; drawn = [m for m in mk if m['t'] != 'region']
+            if reg: out.append('- 框选区域（页面像素，左上角 x,y 和宽高）：' + '；'.join(f'{m["x"]:.0f},{m["y"]:.0f} 起 {m["w"]:.0f}×{m["h"]:.0f}' for m in reg) + '——要改的是这一整块，不只是选择器指到的元素')
+            if drawn: out.append(f'- 截图上用红笔圈出了 {len(drawn)} 处（看截图里的红色标记）')
             if r.get('files'): out.append('- 附件（读取需口令）：' + '、'.join(f'{"截图" if f["kind"] == "shot" else "图片"} {PREFIX}files/{f["id"]}' for f in r['files']))
             out += ['', r['body'], '']
             for x in r['replies']:

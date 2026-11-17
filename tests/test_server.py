@@ -159,6 +159,35 @@ class ServerTest(unittest.TestCase):
             time.sleep(.05)
         self.fail('发布没有结束')
 
+    def test_marks(self):
+        """框选区域和截图上的圈画：存下来，清单里告诉 agent；乱七八糟的输入被丢掉。"""
+        marks = [{'t': 'region', 'x': 100, 'y': 2400.4, 'w': 600, 'h': 320}, {'t': 'pen', 'x': .1, 'y': .2, 'w': .3, 'h': .1}, {'t': 'evil', 'x': 1}, 'junk']
+        it = self.new_item(body='这一块整体太挤', marks=marks, shot=DATA_PNG)
+        self.assertEqual([m['t'] for m in it['marks']], ['region', 'pen'])
+        md = self.req('export.md')[1].decode()
+        self.assertIn('框选区域', md); self.assertIn('100,2400 起 600×320', md); self.assertIn('红笔圈出了 1 处', md)
+        self.assertEqual(self.new_item(body='没有标记')['marks'], [])
+
+    def test_upgrade_old_database(self):
+        """v1 的旧数据库：启动时自动补列，旧数据照常读出。"""
+        import sqlite3
+        db = os.path.join(self.tmp.name, 'old.db'); c = sqlite3.connect(db)
+        c.executescript('''CREATE TABLE items (id INTEGER PRIMARY KEY AUTOINCREMENT, page TEXT NOT NULL, title TEXT, selector TEXT, quote TEXT,
+          rx REAL, ry REAL, px REAL, py REAL, vw INTEGER, vh INTEGER, device TEXT, kind TEXT, priority TEXT, body TEXT NOT NULL,
+          author TEXT, cid TEXT, status TEXT DEFAULT 'open', created REAL, updated REAL, deleted INTEGER DEFAULT 0);
+          CREATE TABLE replies (id INTEGER PRIMARY KEY AUTOINCREMENT, item INTEGER NOT NULL, author TEXT, cid TEXT, body TEXT, kind TEXT DEFAULT 'reply', created REAL);
+          INSERT INTO items (page, body, author, status, created, updated) VALUES ('index.html', '旧批注', '王五', 'open', 1, 1);''')
+        c.commit(); c.close()
+        port = free_port(); env = dict(os.environ, FB_TEAM_CODE='t', FB_DB=db, FB_PORT=str(port))
+        p = subprocess.Popen([sys.executable, '-I', os.path.join(ROOT, 'server', 'fb_server.py')], env=env, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        try:
+            for _ in range(50):
+                try:
+                    with urllib.request.urlopen(urllib.request.Request(f'http://127.0.0.1:{port}/api/fb/queue.json', headers={'X-FB-Code': 't'}), timeout=1) as r: q = json.loads(r.read()); break
+                except Exception: time.sleep(.1)
+            self.assertEqual(q['triage'][0]['body'], '旧批注'); self.assertEqual(q['triage'][0]['marks'], [])
+        finally: p.terminate(); p.wait(5)
+
     def test_agent_key(self):
         """agent 口令可以用 X-FB-Key 请求头（云端环境的密钥只能存这类名字）；权限同成员，不能拍板。"""
         self.assertEqual(json.loads(self.req('ping', key='agent-key')[1])['role'], 'agent')

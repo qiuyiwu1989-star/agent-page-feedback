@@ -1,6 +1,8 @@
 /* agent-page-feedback · 页面批注组件（由 fb-loader.js 按需加载）
    - 首次用带 ?fb=1（或 ?fb=口令）的链接打开，输入口令和姓名后，左下角出现批注条
    - 点「批注」→ 点选页面位置（可先划选文字）→ 自动截一张位置图 → 写意见、可粘贴或添加图片 → 提交
+   - 点「框选」→ 在页面上拖一个框（手机上用手指）→ 截图框出这块区域
+   - 写意见时可以「说话」（浏览器语音识别；不支持时提示用键盘上的话筒），可以在截图上用手指 / 鼠标圈出要改的地方
    - 批注存在服务器（APF_CONFIG.api），多人共享；汇总页 feedback.html 可讨论、复盘、导出给 agent
    - 所有界面在 Shadow DOM 里，不影响网站自己的样式 */
 (function () {
@@ -137,10 +139,19 @@
   .ba { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; margin: 6px 0; } .ba figure { margin: 0; } .ba figcaption { font-size: 11px; color: #6b7280; margin-bottom: 2px; }
   .ba img { width: 100%; height: 96px; object-fit: cover; object-position: top; border-radius: 8px; border: 1px solid #e5e7eb; cursor: zoom-in; background: #f3f4f6; }
   .box .rb { font-size: 11.5px; color: #6b7280; }
+  .boxov { position: fixed; inset: 0; cursor: crosshair; touch-action: none; background: rgba(15,20,35,.06); }
+  .boxov .r { position: fixed; border: 2px solid #F59E0B; background: rgba(245,158,11,.12); border-radius: 4px; display: none; pointer-events: none; }
+  .boxov .h { position: fixed; top: 12px; left: 50%; transform: translateX(-50%); background: #1f2430; color: #fff; padding: 8px 14px; border-radius: 999px; font-size: 13px; pointer-events: none; white-space: nowrap; }
+  .dock.boxing .boxb { background: #fff; color: #1f2430; }
+  .mic { white-space: nowrap; height: 30px; border: 1px solid #d9dce3; background: #fff; color: #1f2430; border-radius: 999px; padding: 4px 12px; font-size: 12.5px; }
+  .mic.rec { background: #DC2626; border-color: #DC2626; color: #fff; animation: rp 1.2s infinite; }
+  @keyframes rp { 50% { box-shadow: 0 0 0 6px rgba(220,38,38,.18); } }
+  .row .btn { white-space: nowrap; }
+  .mk { white-space: nowrap; font-size: 12px; color: #B91C1C; cursor: pointer; border: 1px dashed #FCA5A5; border-radius: 8px; padding: 0 10px; height: 30px; display: inline-flex; align-items: center; background: #fff; }
   @media (max-width: 640px) { .dock { left: 8px; bottom: 8px; } .dock .lbl { display: none; } .drawer { width: 100vw; } }
   </style>
   <div class="pins"></div><div class="hl"><b></b></div>
-  <div class="dock" hidden><button class="main" title="点选页面上要批注的位置"><span>✎</span><span class="lbl">批注</span></button><button class="cnt" title="本页批注"><span class="lbl">本页</span><span class="n">0</span></button><span class="more"><button class="mb" title="更多">⋯</button><div class="menu"><div class="who"></div><button data-a="pins">隐藏页面上的标记</button><button data-a="all">全站批注</button><a data-a="sum" target="_blank">汇总页 / 导出给 agent ↗</a><button data-a="name">改姓名</button><button data-a="out">退出批注</button></div></span></div>
+  <div class="dock" hidden><button class="main" title="点选页面上要批注的位置"><span>✎</span><span class="lbl">批注</span></button><button class="boxb" title="拖一个框，框出要改的区域"><span>▭</span><span class="lbl">框选</span></button><button class="cnt" title="本页批注"><span class="lbl">本页</span><span class="n">0</span></button><span class="more"><button class="mb" title="更多">⋯</button><div class="menu"><div class="who"></div><button data-a="pins">隐藏页面上的标记</button><button data-a="all">全站批注</button><a data-a="sum" target="_blank">汇总页 / 导出给 agent ↗</a><button data-a="name">改姓名</button><button data-a="out">退出批注</button></div></span></div>
   <div class="drawer"><div class="dh"><div class="t"><b>批注</b><button class="x" title="关闭">×</button></div><div class="tabs"></div></div><div class="list"></div></div>
   <div class="toast"></div>`;
   const media = new Promise(r => { if (window.APFMedia) return r(); const sc = document.createElement('script'); sc.src = new URL('fb-media.js', SRC).href; sc.onload = sc.onerror = () => r(); document.head.append(sc); });
@@ -209,36 +220,77 @@
     const r = el.getBoundingClientRect();
     setPick(false); form({ el, quote, rx: r.width ? Math.min(1, Math.max(0, (e.clientX - r.left) / r.width)) : 0, ry: r.height ? Math.min(1, Math.max(0, (e.clientY - r.top) / r.height)) : 0, cx: e.clientX, cy: e.clientY }); }
   function onKey(e) { if (e.key === 'Escape' && picking) setPick(false); }
-  function setPick(on) { picking = on; dock.classList.toggle('picking', on); $('.main .lbl').textContent = on ? '点选位置，可先划选文字 · Esc 取消' : '批注'; hl.style.display = 'none';
+  function setPick(on) { if (on && boxing) setBox(false); picking = on; dock.classList.toggle('picking', on); $('.main .lbl').textContent = on ? '点选位置，可先划选文字 · Esc 取消' : '批注'; hl.style.display = 'none';
     document.documentElement.style.cursor = on ? 'crosshair' : ''; }
+  // ---------- 框选：拖一个框（鼠标或手指） ----------
+  let boxing = null;
+  function setBox(on) {
+    if (boxing) { boxing.remove(); boxing = null; } dock.classList.toggle('boxing', on); if (!on) return; setPick(false);
+    const ov = document.createElement('div'); ov.className = 'boxov'; ov.innerHTML = '<div class="r"></div><div class="h">拖一个框，框出要改的区域 · Esc 取消</div>'; root.append(ov); boxing = ov;
+    const rb = ov.querySelector('.r'); let a = null, b = null;
+    const rect = () => ({ left: Math.min(a[0], b[0]), top: Math.min(a[1], b[1]), width: Math.abs(b[0] - a[0]), height: Math.abs(b[1] - a[1]) });
+    ov.addEventListener('pointerdown', e => { e.preventDefault(); ov.setPointerCapture(e.pointerId); a = b = [e.clientX, e.clientY]; });
+    ov.addEventListener('pointermove', e => { if (!a) return; b = [e.clientX, e.clientY]; const r = rect(); Object.assign(rb.style, { display: 'block', left: r.left + 'px', top: r.top + 'px', width: r.width + 'px', height: r.height + 'px' }); });
+    const up = () => { if (!a) return; const r = rect(); a = null; if (r.width < 12 || r.height < 12) { rb.style.display = 'none'; return; }
+      setBox(false); const el = boxEl(r); if (!el) return;
+      const er = el.getBoundingClientRect(), cx = r.left + r.width / 2, cy = r.top + r.height / 2;
+      form({ el, quote: textOf(el).slice(0, 120), rect: r, rx: er.width ? Math.min(1, Math.max(0, (cx - er.left) / er.width)) : 0, ry: er.height ? Math.min(1, Math.max(0, (cy - er.top) / er.height)) : 0, cx: r.left + r.width, cy: r.top }); };
+    ov.addEventListener('pointerup', up); ov.addEventListener('pointercancel', () => { a = null; rb.style.display = 'none'; });
+  }
+  // 框里的元素：取框的中心和四角所在元素的共同祖先
+  function boxEl(r) {
+    const pts = [[.5, .5], [.15, .15], [.85, .15], [.15, .85], [.85, .85]].map(([x, y]) => document.elementFromPoint(r.left + r.width * x, r.top + r.height * y)).filter(el => !skip(el));
+    if (!pts.length) return null; let el = pts[0];
+    while (el && !pts.every(x => el.contains(x))) el = el.parentElement;
+    return !el || el === document.documentElement ? pts[0] : el === document.body ? pts[0] : el; }
+  document.addEventListener('keydown', e => { if (e.key === 'Escape' && boxing) setBox(false); }, true);
   document.addEventListener('mousemove', onMove, true); document.addEventListener('click', onClick, true); document.addEventListener('keydown', onKey, true);
 
   // ---------- 新建批注 ----------
   function chips(name, map, val) { return `<div class="chips" data-n="${name}"><span>${name === 'kind' ? '类型' : '优先级'}</span>${Object.entries(map).map(([k, v]) => `<button class="chip" data-v="${k}" aria-pressed="${k === val}">${v}</button>`).join('')}</div>`; }
   function form(t) { root.querySelectorAll('.pop').forEach(x => x.remove()); const p = document.createElement('div'); p.className = 'pop';
     p.innerHTML = `<h4>写批注</h4>${t.quote ? `<p class="quote">${esc(t.quote)}</p>` : ''}${chips('kind', KIND, 'suggest')}${chips('prio', PRIO, 'mid')}
-      <textarea rows="4" placeholder="哪里不对、希望怎么改？写得越具体，agent 越好改（可直接粘贴图片）"></textarea>
-      <div class="att"><div class="th shot" data-shot>正在截取<br>批注位置…</div><label class="addimg">＋ 添加图片<input type="file" accept="image/png,image/jpeg,image/webp,image/gif" multiple></label></div><div class="err"></div>
-      <div class="row"><span class="tip">Ctrl / ⌘ + Enter 提交</span><button class="btn cx">取消</button><button class="btn pri ok">提交</button></div>`;
+      <textarea rows="4" placeholder="哪里不对、希望怎么改？写得越具体，agent 越好改（可直接粘贴图片，也可以点「说话」）"></textarea>
+      <div class="att"><div class="th shot" data-shot>正在截取<br>${t.rect ? '框选区域' : '批注位置'}…</div><label class="addimg">＋ 添加图片<input type="file" accept="image/png,image/jpeg,image/webp,image/gif" multiple></label><button class="mic" type="button" title="用语音输入意见">🎤 说话</button></div><div class="err"></div>
+      <div class="row"><span class="tip">${innerWidth < 640 ? '' : 'Ctrl / ⌘ + Enter 提交'}</span><button class="btn cx">取消</button><button class="btn pri ok">提交</button></div>`;
     root.append(p); const W = 340, H = p.offsetHeight || 300; p.style.left = Math.max(12, Math.min(innerWidth - W - 12, t.cx + 12)) + 'px'; p.style.top = Math.max(12, Math.min(innerHeight - H - 12, t.cy + 12)) + 'px';
     p.querySelectorAll('.chips').forEach(g => g.onclick = e => { const b = e.target.closest('.chip'); if (!b) return; g.querySelectorAll('.chip').forEach(x => x.setAttribute('aria-pressed', x === b)); });
     const ta = p.querySelector('textarea'), er = p.querySelector('.err'), ok = p.querySelector('.ok'), att = p.querySelector('.att'), shEl = p.querySelector('[data-shot]'); ta.focus();
-    let shot = null; const imgs = [];
-    const shotP = media.then(() => M() ? M().capture(t.el, { rx: t.rx, ry: t.ry }) : Promise.reject(new Error('截图组件没加载')))
-      .then(u => { shot = u; shEl.style.backgroundImage = `url(${u})`; shEl.textContent = ''; shEl.innerHTML = '<button title="不要截图">×</button>'; shEl.querySelector('button').onclick = () => { shot = null; shEl.remove(); }; shEl.onclick = e => { if (!e.target.closest('button')) M().lightbox(u, '批注位置截图'); }; })
+    let shot = null, shotMarks = []; const imgs = [];
+    const showShot = u => { shot = u; shEl.style.backgroundImage = `url(${u})`; shEl.textContent = ''; shEl.innerHTML = '<button title="不要截图">×</button>';
+      shEl.querySelector('button').onclick = () => { shot = null; shotMarks = []; shEl.remove(); mk.remove(); }; shEl.onclick = e => { if (!e.target.closest('button')) M().lightbox(shot, '批注位置截图'); }; };
+    // 在截图上圈出要改的地方（每次都在原始截图上画，所以可以重画）
+    const mk = document.createElement('button'); mk.type = 'button'; mk.className = 'mk'; mk.textContent = '✎ 在截图上圈出'; let raw = null;
+    mk.onclick = async () => { const r = await M().editImage(raw); if (!r) return; showShot(r.url); shotMarks = r.marks; mk.textContent = r.marks.length ? `✎ 已圈出 ${r.marks.length} 处 · 重画` : '✎ 在截图上圈出'; };
+    const shotP = media.then(() => M() ? M().capture(t.el, t.rect ? { rect: t.rect } : { rx: t.rx, ry: t.ry }) : Promise.reject(new Error('截图组件没加载')))
+      .then(u => { raw = u; showShot(u); if (M().editImage) shEl.after(mk); })
       .catch(() => { shEl.textContent = '没截到图，可手动添加'; shEl.style.fontSize = '10.5px'; });
+    // 语音输入：浏览器自带的语音识别（Chrome、Edge、安卓、较新的 iPhone Safari）；不支持时提示用键盘上的话筒
+    const mic = p.querySelector('.mic'), SR = window.SpeechRecognition || window.webkitSpeechRecognition; let rec = null;
+    const stopMic = () => { if (rec) { try { rec.stop(); } catch (e) {} } };
+    mic.onclick = () => {
+      if (rec) return stopMic();
+      if (!SR || /MicroMessenger/i.test(navigator.userAgent)) { ta.focus(); er.textContent = '这个浏览器不能直接识别语音：请点手机键盘上的话筒按钮说话（电脑上建议用 Chrome）'; return; }
+      const base = ta.value; let fin = '', shown = base;
+      try { rec = new SR(); } catch (e) { er.textContent = '语音识别启动失败，可以用键盘上的话筒说话'; return; }
+      rec.lang = 'zh-CN'; rec.interimResults = true; rec.continuous = true;
+      rec.onresult = e => { let mid = ''; for (let i = e.resultIndex; i < e.results.length; i++) { const x = e.results[i]; if (x.isFinal) fin += x[0].transcript; else mid += x[0].transcript; } if (ta.value !== shown) return stopMic(); ta.value = shown = base + fin + mid; };   // 用户自己改了文字就停，不覆盖
+      rec.onerror = e => { er.textContent = e.error === 'not-allowed' || e.error === 'service-not-allowed' ? '没有麦克风权限：请在浏览器设置里允许，或用键盘上的话筒说话' : e.error === 'no-speech' ? '没听到声音，再试一次' : '语音识别出错了，可以用键盘上的话筒说话'; };
+      rec.onend = () => { rec = null; mic.classList.remove('rec'); mic.textContent = '🎤 说话'; if (ta.value === shown) ta.value = base + fin; };
+      er.textContent = ''; rec.start(); mic.classList.add('rec'); mic.textContent = '■ 说完了'; };
     const addImgs = async files => { for (const f of files) { try { const u = await M().readImage(f); imgs.push(u); const d = document.createElement('div'); d.className = 'th'; d.style.backgroundImage = `url(${u})`; d.innerHTML = '<button title="移除">×</button>'; d.querySelector('button').onclick = () => { imgs.splice(imgs.indexOf(u), 1); d.remove(); }; att.insertBefore(d, att.querySelector('.addimg')); } catch (e2) { er.textContent = e2.message; } } };
     att.querySelector('input').onchange = e => { const fs = [...e.target.files]; e.target.value = ''; media.then(() => addImgs(fs)); };
     ta.addEventListener('paste', e => { const fs = [...(e.clipboardData || {}).files || []].filter(f => f.type.startsWith('image/')); if (fs.length) { e.preventDefault(); media.then(() => addImgs(fs)); } });
     const val = n => p.querySelector(`[data-n="${n}"] [aria-pressed="true"]`).dataset.v;
-    const submit = async () => { if (!ta.value.trim()) { er.textContent = '请写下意见'; return; } ok.disabled = true; ok.textContent = '提交中…';
+    const submit = async () => { stopMic(); if (!ta.value.trim()) { er.textContent = '请写下意见'; return; } ok.disabled = true; ok.textContent = '提交中…';
       await Promise.race([shotP, new Promise(r2 => setTimeout(r2, 9500))]);
       const r = t.el.getBoundingClientRect();
-      try { const j = await api('items', { body: { page, url: pageURL(), title: pageTitle(), selector: selOf(t.el), quote: t.quote, rx: t.rx, ry: t.ry, px: r.left + scrollX + r.width * t.rx, py: r.top + scrollY + r.height * t.ry, vw: innerWidth, vh: innerHeight, device: innerWidth < 640 ? '手机' : innerWidth < 1024 ? '平板' : '桌面', kind: val('kind'), priority: val('prio'), body: ta.value.trim(), shot: shot || undefined, images: imgs } });
+      try { const j = await api('items', { body: { page, url: pageURL(), title: pageTitle(), selector: selOf(t.el), quote: t.quote, rx: t.rx, ry: t.ry, px: r.left + scrollX + r.width * t.rx, py: r.top + scrollY + r.height * t.ry, vw: innerWidth, vh: innerHeight, device: innerWidth < 640 ? '手机' : innerWidth < 1024 ? '平板' : '桌面', kind: val('kind'), priority: val('prio'), body: ta.value.trim(), shot: shot || undefined, images: imgs,
+          marks: (t.rect ? [{ t: 'region', x: Math.round(t.rect.left + scrollX), y: Math.round(t.rect.top + scrollY), w: Math.round(t.rect.width), h: Math.round(t.rect.height) }] : []).concat(shot ? shotMarks : []) } });
         items.unshift(j.item); allItems = null; counts(); renderPins(); p.remove(); toast('已提交 #' + j.item.id); if (drawer.classList.contains('on')) renderList(); }
       catch (e) { er.textContent = e.message; ok.disabled = false; ok.textContent = '提交'; } };
-    ok.onclick = submit; p.querySelector('.cx').onclick = () => p.remove();
-    ta.addEventListener('keydown', e => { if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) submit(); if (e.key === 'Escape') p.remove(); }); }
+    ok.onclick = submit; p.querySelector('.cx').onclick = () => { stopMic(); p.remove(); };
+    ta.addEventListener('keydown', e => { if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) submit(); if (e.key === 'Escape') { stopMic(); p.remove(); } }); }
 
   // ---------- 列表 ----------
   async function openDrawer(sc, id) { scope = sc || scope; cur = id || 0; drawer.classList.add('on');
@@ -295,6 +347,7 @@
 
   // ---------- 批注条 ----------
   $('.main').onclick = () => setPick(!picking);
+  $('.boxb').onclick = () => setBox(!boxing);
   $('.cnt').onclick = () => drawer.classList.contains('on') && scope === 'page' ? (drawer.classList.remove('on'), cur = 0, renderPins()) : openDrawer('page');
   const menu = $('.menu'); $('.mb').onclick = e => { e.stopPropagation(); menu.classList.toggle('on'); };
   document.addEventListener('click', () => menu.classList.remove('on'));
