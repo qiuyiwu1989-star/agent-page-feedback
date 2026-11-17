@@ -1,6 +1,7 @@
 """服务端测试：python3 -m unittest discover tests
 启动一个临时服务（临时数据库、随机端口），把接口完整走一遍。只用标准库。"""
-import base64, json, os, socket, subprocess, sys, tempfile, time, unittest, urllib.error, urllib.request
+import base64, json, os, socket, subprocess, sys, tempfile, threading, time, unittest, urllib.error, urllib.request
+from http.server import HTTPServer, BaseHTTPRequestHandler
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 PNG = base64.b64decode('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==')
@@ -11,11 +12,29 @@ def free_port():
     s = socket.socket(); s.bind(('127.0.0.1', 0)); p = s.getsockname()[1]; s.close(); return p
 
 
+PUSHED = []   # 假的飞书群：收到的推送
+class Catcher(BaseHTTPRequestHandler):
+    def log_message(self, *a): pass
+    def do_POST(self):
+        PUSHED.append(json.loads(self.rfile.read(int(self.headers['Content-Length']))))
+        self.send_response(200); self.end_headers(); self.wfile.write(b'{}')
+
+
 class ServerTest(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
         cls.tmp = tempfile.TemporaryDirectory(); cls.port = free_port()
-        env = dict(os.environ, FB_TEAM_CODE='team-code', FB_ADMIN_CODE='admin-code', FB_DB=os.path.join(cls.tmp.name, 'fb.db'), FB_PORT=str(cls.port), FB_SITE='https://example.com/')
+        cls.hook = HTTPServer(('127.0.0.1', 0), Catcher); threading.Thread(target=cls.hook.serve_forever, daemon=True).start()
+        # 假的发布脚本：把收到的环境变量记到文件里；版本号是 bad 时失败
+        cls.log = os.path.join(cls.tmp.name, 'deploy.log'); script = os.path.join(cls.tmp.name, 'deploy.py')
+        with open(script, 'w') as f:
+            f.write('import os, sys, time\n'
+                    'e = os.environ\n'
+                    'open(%r, "a").write("|".join([e["FB_DEPLOY_ACTION"], e["FB_DEPLOY_ID"], e["FB_DEPLOY_REF"], e["FB_ROLLBACK_ID"], str("FB_TEAM_CODE" in e)]) + "\\n")\n'
+                    'time.sleep(float(e["FB_DEPLOY_REF"][5:]) if e["FB_DEPLOY_REF"].startswith("slow-") else 0)\n'
+                    'print("done", e["FB_DEPLOY_ID"]); sys.exit(1 if e["FB_DEPLOY_REF"] == "bad" else 0)\n' % cls.log)
+        env = dict(os.environ, FB_TEAM_CODE='team-code', FB_ADMIN_CODE='admin-code', FB_AGENT_CODE='agent-key', FB_DB=os.path.join(cls.tmp.name, 'fb.db'), FB_PORT=str(cls.port), FB_SITE='https://example.com/',
+                   FB_NOTIFY_URL=f'http://127.0.0.1:{cls.hook.server_port}/hook', FB_DEPLOY_CMD=f'{sys.executable} -I {script}')
         cls.proc = subprocess.Popen([sys.executable, '-I', os.path.join(ROOT, 'server', 'fb_server.py')], env=env, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
         cls.base = f'http://127.0.0.1:{cls.port}/api/fb/'
         for _ in range(50):
@@ -24,10 +43,11 @@ class ServerTest(unittest.TestCase):
 
     @classmethod
     def tearDownClass(cls):
-        cls.proc.terminate(); cls.proc.wait(5); cls.tmp.cleanup()
+        cls.proc.terminate(); cls.proc.wait(5); cls.hook.shutdown(); cls.tmp.cleanup()
 
-    def req(self, path, body=None, code='team-code', name='张三', cid='c1'):
+    def req(self, path, body=None, code='team-code', name='张三', cid='c1', key=None):
         h = {'Content-Type': 'application/json', 'X-FB-Code': code, 'X-FB-Name': urllib.request.quote(name), 'X-FB-Cid': cid}
+        if key is not None: h.pop('X-FB-Code'); h['X-FB-Key'] = key
         r = urllib.request.Request(self.base + path, data=json.dumps(body).encode() if body is not None else None, headers=h)
         try:
             with urllib.request.urlopen(r) as x: return x.status, x.read(), x.headers.get('Content-Type', '')
@@ -128,6 +148,75 @@ class ServerTest(unittest.TestCase):
         self.assertEqual(self.req(f'prefs/{pid}/off', {})[0], 403)
         self.assertEqual(self.req(f'prefs/{pid}/off', {}, code='admin-code')[0], 200)
         self.assertNotIn('不要星号', self.req('export.md')[1].decode())
+
+    def lastlog(self):
+        with open(self.log) as f: return f.read().splitlines()[-1].split('|')
+
+    def wait_deploy(self, did):
+        for _ in range(100):
+            d = json.loads(self.req(f'deploys/{did}')[1])['deploy']
+            if d['status'] != 'running': return d
+            time.sleep(.05)
+        self.fail('发布没有结束')
+
+    def test_agent_key(self):
+        """agent 口令可以用 X-FB-Key 请求头（云端环境的密钥只能存这类名字）；权限同成员，不能拍板。"""
+        self.assertEqual(json.loads(self.req('ping', key='agent-key')[1])['role'], 'agent')
+        self.assertEqual(json.loads(self.req('ping', key='team-code')[1])['role'], 'team')
+        self.assertEqual(self.req('ping', key='nope')[0], 401)
+        iid = self.new_item(body='agent 不能拍板')['id']
+        self.assertEqual(self.req(f'items/{iid}/decide', {'action': 'approve'}, key='agent-key', name='Claude')[0], 403)
+        self.assertEqual(self.req(f'items/{iid}/reply', {'body': '打算把字号改为 18px'}, key='agent-key', name='Claude')[0], 200)
+
+    def test_queue_triage_flags(self):
+        """agent 回复过、之后没人说话的待分诊任务算已分诊，定时任务不用再看；有人再说话就重新算新的。"""
+        iid = self.new_item(body='分诊标记')['id']
+        q = json.loads(self.req('queue.json')[1]); t = {x['id']: x['triaged'] for x in q['triage']}
+        self.assertFalse(t[iid]); n0 = q['summary']['triage_new']
+        time.sleep(.01); self.req(f'items/{iid}/reply', {'body': '打算这样改，请负责人点「可以做」'}, name='Claude')
+        q = json.loads(self.req('queue.json')[1]); self.assertTrue({x['id']: x['triaged'] for x in q['triage']}[iid]); self.assertEqual(q['summary']['triage_new'], n0 - 1)
+        time.sleep(.01); self.req(f'items/{iid}/reply', {'body': '补充：手机上也有这个问题'}, name='李四')
+        q = json.loads(self.req('queue.json')[1]); self.assertFalse({x['id']: x['triaged'] for x in q['triage']}[iid])
+
+    def test_digest(self):
+        self.assertEqual(self.req('digest', {'title': '汇总', 'markdown': '内容'})[0], 403)   # 成员口令不行
+        self.assertEqual(self.req('digest', {'title': '', 'markdown': '内容'}, key='agent-key')[0], 400)
+        n = len(PUSHED)
+        st, b, _ = self.req('digest', {'title': '本轮汇总 10:00', 'markdown': '- 做了 #3\n- 等你决定 #5', 'buttons': [{'text': '任务中心', 'url': 'https://example.com/fb'}, {'text': '坏的', 'url': 'javascript:x'}]}, key='agent-key', name='Claude')
+        self.assertEqual(st, 200, b); self.assertTrue(json.loads(b)['sent'])
+        for _ in range(50):
+            if len(PUSHED) > n: break
+            time.sleep(.05)
+        cardj = json.dumps(PUSHED[-1], ensure_ascii=False)
+        self.assertIn('本轮汇总 10:00', cardj); self.assertIn('任务中心', cardj); self.assertNotIn('javascript', cardj)
+        self.assertNotIn('agent-key', cardj)
+        self.assertEqual(json.loads(self.req('digests')[1])['digests'][0]['title'], '本轮汇总 10:00')
+
+    def test_deploy_and_rollback(self):
+        self.assertEqual(self.req('deploy', {'ref': 'main'})[0], 403)                          # 成员口令不能发布
+        self.assertEqual(self.req('deploy', {'ref': 'main; rm -rf /'}, key='agent-key')[0], 400)   # 版本号只能是安全字符
+        st, b, _ = self.req('deploy', {'ref': 'abc123', 'items': [7, 8], 'note': '改首页'}, key='agent-key', name='Claude'); self.assertEqual(st, 200, b)
+        d = json.loads(b)['deploy']; self.assertEqual(d['status'], 'running')
+        d = self.wait_deploy(d['id']); self.assertEqual(d['status'], 'ok'); self.assertIn(f'done {d["id"]}', d['output']); self.assertEqual(json.loads(d['items']), [7, 8])
+        line = self.lastlog()
+        self.assertEqual(line, ['deploy', str(d['id']), 'abc123', '', 'False'])                # 脚本拿不到口令
+        # 回滚：新登记一次 rollback，告诉脚本恢复到哪次发布之前
+        rb = self.wait_deploy(json.loads(self.req(f'deploys/{d["id"]}/rollback', {'note': '负责人说改回来'}, key='agent-key', name='Claude')[1])['deploy']['id'])
+        self.assertEqual((rb['action'], rb['rollback_of'], rb['status']), ('rollback', d['id'], 'ok'))
+        self.assertEqual(self.lastlog()[:4], ['rollback', str(rb['id']), '', str(d['id'])])
+        self.assertEqual(self.req(f'deploys/{rb["id"]}/rollback', {}, key='agent-key')[0], 404)  # 只能回滚「发布」
+        # 失败会推送
+        n = len(PUSHED); bad = self.wait_deploy(json.loads(self.req('deploy', {'ref': 'bad'}, code='admin-code', name='负责人')[1])['deploy']['id'])
+        self.assertEqual(bad['status'], 'failed')
+        for _ in range(50):
+            if len(PUSHED) > n: break
+            time.sleep(.05)
+        self.assertIn('发布失败', json.dumps(PUSHED[-1], ensure_ascii=False))
+        # 同一时间只跑一个
+        slow = json.loads(self.req('deploy', {'ref': 'slow-0.6'}, key='agent-key')[1])['deploy']
+        self.assertEqual(self.req('deploy', {'ref': 'x'}, key='agent-key')[0], 409)
+        self.wait_deploy(slow['id'])
+        self.assertTrue(json.loads(self.req('deploys')[1])['enabled'])
 
 if __name__ == '__main__':
     unittest.main()

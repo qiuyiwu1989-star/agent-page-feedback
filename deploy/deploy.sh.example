@@ -1,0 +1,47 @@
+#!/usr/bin/env bash
+# 发布脚本样例（静态网站，源代码在 git 仓库里）。复制到服务器，改好下面几个路径，chmod 700，
+# 然后在批注服务的 .env 里写 FB_DEPLOY_CMD=/这个脚本的路径。
+#
+# 批注服务会这样调用它（不经过 shell，参数只通过环境变量传）：
+#   FB_DEPLOY_ACTION=deploy   FB_DEPLOY_ID=发布编号  FB_DEPLOY_REF=提交号（可能为空，表示最新的 main）
+#   FB_DEPLOY_ACTION=rollback FB_DEPLOY_ID=这次的编号 FB_ROLLBACK_ID=要撤销的那次发布的编号
+# 退出码 0 = 成功；输出的最后几千字会登记在发布记录里，不要打印密钥。
+#
+# 服务器和对象存储的密钥只放在服务器上（例如 ~/.cos.conf、本机的 git 部署密钥），agent 拿不到。
+set -euo pipefail
+
+REPO=/home/ubuntu/site-src          # 网站源代码的 git 检出（服务器能 git fetch）
+BUILD=""                            # 生成命令，例如 "python3 build.py"；没有就留空
+OUT="$REPO"                         # 生成结果所在目录（没有生成步骤时就是仓库本身）
+WEB=/var/www/site                   # nginx 实际提供的目录
+BACKUPS=/home/ubuntu/site-backups   # 每次发布前的整站备份
+KEEP=40                             # 最多保留多少份备份
+# SYNC_COS="coscli sync $WEB cos://桶名/路径 -r --delete"   # 网站还要同步到对象存储时打开
+
+mkdir -p "$BACKUPS"
+backup() { tar -C "$WEB" -czf "$BACKUPS/before-$FB_DEPLOY_ID.tar.gz" . ; echo "已备份到 before-$FB_DEPLOY_ID.tar.gz"; }
+
+case "$FB_DEPLOY_ACTION" in
+  deploy)
+    backup
+    cd "$REPO"
+    git fetch --quiet origin
+    git checkout --quiet --detach "${FB_DEPLOY_REF:-origin/main}"
+    echo "版本：$(git log -1 --format='%h %s')"
+    [ -n "$BUILD" ] && bash -c "$BUILD"
+    rsync -a --checksum --delete --exclude .git "$OUT/" "$WEB/"
+    ;;
+  rollback)
+    src="$BACKUPS/before-$FB_ROLLBACK_ID.tar.gz"
+    [ -f "$src" ] || { echo "找不到备份 $src"; exit 1; }
+    backup                                   # 回滚本身也能再撤销
+    tmp=$(mktemp -d); tar -C "$tmp" -xzf "$src"
+    rsync -a --checksum --delete "$tmp/" "$WEB/"; rm -rf "$tmp"
+    echo "已恢复到第 $FB_ROLLBACK_ID 次发布之前"
+    ;;
+  *) echo "不认识的动作：$FB_DEPLOY_ACTION"; exit 2 ;;
+esac
+
+[ -n "${SYNC_COS:-}" ] && bash -c "$SYNC_COS"
+ls -1t "$BACKUPS"/before-*.tar.gz | tail -n +$((KEEP + 1)) | xargs -r rm -f
+echo "完成"

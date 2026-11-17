@@ -74,11 +74,13 @@ curl -s -X POST -H "X-FB-Code: $FB_CODE" -H "X-FB-Name: Claude" -H "Content-Type
 ```
 
 ### 7. 定时自动处理（可选）
-用 Claude Code 的定时任务（例如每天 10:00–23:00 每小时）执行上面 1–6。每次：
-- 没有新任务就结束，不打扰；
-- 一次最多处理约 8 条；
-- 部署前备份；
-- 最后发一份汇总（做了什么、等负责人什么）。
+每天 10:00–23:00 每小时跑一轮，完整说明和指令模板见 [docs/autopilot.md](docs/autopilot.md)。要点：
+- 用 agent 口令（`FB_AGENT_CODE`）：能发布、回滚、发汇总，不能拍板。云端环境里口令由网络代理加到请求头 `X-FB-Key`，不要读取或打印。
+- 先 `python3 tools/fb.py check`：没有要做的事就结束，不打扰；
+- 一次最多处理约 8 条；一条任务一个提交；
+- 发布用 `python3 tools/fb.py deploy --ref 提交号 --item 编号`（服务器先备份再发布，登记发布编号）；回滚编号写「deploy#发布编号 · 提交号」；
+- 最后 `python3 tools/fb.py digest` 发汇总到负责人的飞书群（飞书地址只在服务器上）；
+- 先用「演练」模式跑 1–2 天，负责人同意后再正式。
 
 ## 三、规则
 
@@ -90,7 +92,7 @@ curl -s -X POST -H "X-FB-Code: $FB_CODE" -H "X-FB-Name: Claude" -H "Content-Type
 
 ## 四、接口速查
 
-接口都在 `{FB_PREFIX}` 下（默认 `/api/fb/`），请求头 `X-FB-Code`（通行码）、`X-FB-Name`（署名，要做 URL 编码）。
+接口都在 `{FB_PREFIX}` 下（默认 `/api/fb/`），请求头 `X-FB-Code` 或 `X-FB-Key`（通行码）、`X-FB-Name`（署名，要做 URL 编码）。
 
 | 方法 | 路径 | 作用 |
 |---|---|---|
@@ -109,3 +111,7 @@ curl -s -X POST -H "X-FB-Code: $FB_CODE" -H "X-FB-Name: Claude" -H "Content-Type
 | POST | `items/<id>/delete` | 删除（作者或管理员） |
 | GET / POST | `prefs`、`prefs/<id>/off` | 负责人偏好手册 |
 | GET / POST | `decisions` | 逐条确认的决策记录 |
+| POST | `digest` | 发汇总到负责人的飞书群 `{title, markdown, buttons}`（agent / 管理员口令） |
+| POST | `deploy` | 发布 `{ref, items, note}`，返回发布编号（agent / 管理员口令） |
+| GET | `deploys`、`deploys/<id>` | 发布登记 |
+| POST | `deploys/<id>/rollback` | 整站恢复到这次发布之前（agent / 管理员口令） |

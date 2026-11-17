@@ -8,6 +8,12 @@
 配置（环境变量）：
   FB_TEAM_CODE    必填。团队口令：可以批注、回复、改状态、读取附件
   FB_ADMIN_CODE   选填。管理员口令：另外可以删除任何人的批注、修改任何批注
+  FB_AGENT_CODE   选填。agent 专用口令：权限同成员，另外可以发布（deploy）、回滚、发汇总（digest）；不能拍板。
+                  给定时任务用，只存在云端环境的密钥里
+  FB_DEPLOY_CMD   选填。发布脚本（固定路径，例如 /home/ubuntu/zjuid-feedback/deploy.sh）。设置后才有 deploy 接口；
+                  脚本从环境变量读 FB_DEPLOY_ACTION（deploy / rollback）、FB_DEPLOY_ID、FB_DEPLOY_REF、FB_ROLLBACK_ID，
+                  服务器和对象存储的密钥只放在服务器上，agent 拿不到。样例见 deploy/deploy.sh.example
+  FB_DEPLOY_TIMEOUT  发布脚本最长运行秒数，默认 900
   FB_DB           数据库路径，默认 ./data/fb.db（附件存在同目录的 files/ 下）
   FB_HOST         监听地址，默认 127.0.0.1（建议放在 nginx 等反向代理后面）
   FB_PORT         端口，默认 18810
@@ -27,7 +33,7 @@
     不明确的 → agent 出方案（A / B）→ 待决定 question → 负责人「选方案」→ 可以做 approved
   负责人 = 用管理员口令登录的人。只有管理员口令能做决定（decide），这是 agent 的执行信号。
 
-请求头：X-FB-Code（口令）、X-FB-Name（姓名，encodeURIComponent 编码）、X-FB-Cid（浏览器随机 id，用来认「自己的批注」）。
+请求头：X-FB-Code 或 X-FB-Key（口令，两个名字等价）、X-FB-Name（姓名，encodeURIComponent 编码）、X-FB-Cid（浏览器随机 id，用来认「自己的批注」）。
 署名为 Claude / Codex 等 agent 名称时，汇总页显示为 AI。
 
 接口（都在 {PREFIX} 下，除 client/ 外都要口令）：
@@ -42,6 +48,12 @@
   POST items/<id>/report         agent 交付报告 {summary, why, changes: [..], links: [{name, url}], rollback, before, after, images} → 状态变为「待验收」
   GET  prefs / POST prefs        负责人偏好手册 {text, item}；POST prefs/<id>/off 停用一条（管理员）
   GET  queue.json                给 agent 的任务队列：偏好手册 + 可以执行 / 待分诊 / 等负责人 / 待验收
+  GET  queue.json 里每条待分诊任务带 triaged（agent 已回复过、之后没有人再说话），summary 里是本轮要做的数量
+  POST digest                    agent 发汇总到负责人的飞书群（只限 agent / 管理员口令）{title, markdown, buttons: [{text, url}]}；
+                                 飞书地址只在服务器上。汇总也存进数据库（digests），GET digests 查看
+  POST deploy                    发布（只限 agent / 管理员口令）{ref, items: [编号], note} → {deploy: {id, status: running}}；同一时间只跑一个
+  GET  deploys / deploys/<id>    发布登记（编号、谁、哪些任务、版本、状态、输出末尾）
+  POST deploys/<id>/rollback     把整个网站恢复到第 <id> 次发布之前（只限 agent / 管理员口令；会新登记一次 rollback）
   GET  stats                     统计：各状态数量、一次通过率、平均交付用时、返工次数
   POST items/<id>/edit           改内容（作者或管理员）{body, kind, priority}
   POST items/<id>/delete         删除（作者或管理员；软删除）
@@ -74,6 +86,9 @@ CHOICES = ('zhang', 'sun', 'other', 'discuss', '')
 STATUSES = {'open': '待处理', 'question': '待决定', 'approved': '可以做', 'doing': '处理中', 'review': '待验收', 'done': '已完成', 'wontfix': '不改'}
 ACTIONS = {'approve': ('可以做', 'approved'), 'choose': ('选方案', 'approved'), 'accept': ('通过', 'done'), 'rework': ('再改', 'approved'),
            'revert': ('改回来', 'approved'), 'wontfix': ('不改', 'wontfix'), 'reopen': ('重新打开', 'open')}
+AGENT = os.environ.get('FB_AGENT_CODE', '')
+DEPLOY_CMD = os.environ.get('FB_DEPLOY_CMD', '').strip()
+DEPLOY_TIMEOUT = int(os.environ.get('FB_DEPLOY_TIMEOUT', '900'))
 AI_NAMES = {x.strip().lower() for x in os.environ.get('FB_AI_NAMES', 'Claude,Codex').split(',') if x.strip()}
 SUMMARY_URL = os.environ.get('FB_SUMMARY_URL', '')
 KINDS = {'bug': '问题', 'suggest': '建议', 'copy': '文案', 'style': '样式', 'data': '内容有误'}
@@ -120,6 +135,11 @@ def init():
         CREATE TABLE IF NOT EXISTS decision_log (id INTEGER PRIMARY KEY AUTOINCREMENT, scope TEXT, key TEXT, choice TEXT, note TEXT, author TEXT, created REAL);
         CREATE TABLE IF NOT EXISTS files (id TEXT PRIMARY KEY, item INTEGER, reply INTEGER, kind TEXT, mime TEXT, size INTEGER, author TEXT, created REAL);
         CREATE INDEX IF NOT EXISTS ix_files_item ON files(item);''')
+        c.executescript('''CREATE TABLE IF NOT EXISTS digests (id INTEGER PRIMARY KEY AUTOINCREMENT, title TEXT, markdown TEXT, buttons TEXT, author TEXT, sent INTEGER, created REAL);
+        CREATE TABLE IF NOT EXISTS deploys (id INTEGER PRIMARY KEY AUTOINCREMENT, action TEXT, ref TEXT, items TEXT, note TEXT, rollback_of INTEGER,
+          author TEXT, status TEXT, output TEXT, created REAL, finished REAL);''')
+        # 服务重启时还在跑的发布，结果不明
+        c.execute("UPDATE deploys SET status='unknown', finished=? WHERE status='running'", (time.time(),))
         c.executescript('''CREATE TABLE IF NOT EXISTS prefs (id INTEGER PRIMARY KEY AUTOINCREMENT, text TEXT NOT NULL, item INTEGER, author TEXT, created REAL, active INTEGER DEFAULT 1);''')
         # 旧库升级：缺的列补上（v1 → v2）
         for t, col, typ in (('items', 'url', 'TEXT'), ('items', 'arole', 'TEXT'), ('items', 'signal', 'TEXT'), ('items', 'signal_note', 'TEXT'),
@@ -168,8 +188,9 @@ class H(BaseHTTPRequestHandler):
         self.send_header('Cache-Control', 'no-store'); self.send_header('X-Robots-Tag', 'noindex'); self.end_headers(); self.wfile.write(b)
 
     def role(self):
-        code = self.headers.get('X-FB-Code', '') or (parse_qs(urlparse(self.path).query).get('code') or [''])[0]
+        code = self.headers.get('X-FB-Code', '') or self.headers.get('X-FB-Key', '') or (parse_qs(urlparse(self.path).query).get('code') or [''])[0]
         if ADMIN and hmac.compare_digest(code, ADMIN): return 'admin'
+        if AGENT and hmac.compare_digest(code, AGENT): return 'agent'
         if TEAM and hmac.compare_digest(code, TEAM): return 'team'
         return None
 
@@ -294,8 +315,13 @@ class H(BaseHTTPRequestHandler):
                 if method == 'GET' and p == 'queue.json':
                     rows = [row_item(c, r) for r in c.execute("SELECT * FROM items WHERE deleted=0 AND status NOT IN ('done','wontfix') ORDER BY id")]
                     g = lambda *ss: [r for r in rows if r['status'] in ss]
+                    for r in rows: r['triaged'] = triaged(r)
+                    act, tri = g('approved', 'doing'), g('open')
                     return self.send(200, {'generated': time.strftime('%Y-%m-%d %H:%M'), 'prefs': [r['text'] for r in c.execute('SELECT text FROM prefs WHERE active=1 ORDER BY id')],
-                                           'act': g('approved', 'doing'), 'triage': g('open'), 'waiting': g('question'), 'review': g('review')})
+                                           'summary': {'act': len(act), 'triage_new': sum(1 for r in tri if not r['triaged']), 'waiting': len(g('question')), 'review': len(g('review'))},
+                                           'act': act, 'triage': tri, 'waiting': g('question'), 'review': g('review')})
+                if p in ('digest', 'digests', 'deploy') or p.startswith('deploys'):
+                    return self.ops(c, method, p, role, name)
                 if method == 'GET' and p == 'stats':
                     return self.send(200, stats(c))
                 if p == 'decisions':
@@ -332,6 +358,47 @@ class H(BaseHTTPRequestHandler):
             return self.send(400, {'error': str(e)})
         return self.send(404, {'error': 'not found'})
 
+    def ops(self, c, method, p, role, name):
+        """agent 的汇总推送与发布登记。只限 agent / 管理员口令。"""
+        if method == 'GET' and p in ('digest', 'digests'):
+            return self.send(200, {'digests': [dict(r) for r in c.execute('SELECT * FROM digests ORDER BY id DESC LIMIT 200')]})
+        if method == 'GET' and p == 'deploys':
+            return self.send(200, {'deploys': [dict(r) for r in c.execute('SELECT * FROM deploys ORDER BY id DESC LIMIT 200')], 'enabled': bool(DEPLOY_CMD)})
+        dm = re.fullmatch(r'deploys/(\d+)', p)
+        if method == 'GET' and dm:
+            r = c.execute('SELECT * FROM deploys WHERE id=?', (int(dm.group(1)),)).fetchone()
+            return self.send(200, {'deploy': dict(r)}) if r else self.send(404, {'error': '没有这次发布'})
+        if method != 'POST': return self.send(404, {'error': 'not found'})
+        if role not in ('agent', 'admin'): return self.send(403, {'error': '只有 agent 口令或管理员口令可以发汇总、发布'})
+        d = self.body(); now = time.time()
+        if p == 'digest':
+            title = clip(d.get('title'), 120).strip(); md = clip(d.get('markdown'), 12000).strip()
+            if not title or not md: return self.send(400, {'error': '汇总要有标题和内容'})
+            btns = [{'text': clip(b.get('text'), 30), 'url': clip(b.get('url'), 500)} for b in (d.get('buttons') or [])[:4]
+                    if isinstance(b, dict) and str(b.get('url', '')).startswith(('https://', 'http://'))]
+            sent = bool(NOTIFY_URL)
+            did = c.execute('INSERT INTO digests (title,markdown,buttons,author,sent,created) VALUES (?,?,?,?,?,?)', (title, md, json.dumps(btns, ensure_ascii=False), name, int(sent), now)).lastrowid
+            if sent: push(card(title, md, [(b['text'], b['url']) for b in btns], 'blue'))
+            return self.send(200, {'ok': True, 'id': did, 'sent': sent})
+        if p == 'deploy' or re.fullmatch(r'deploys/\d+/rollback', p):
+            if not DEPLOY_CMD: return self.send(400, {'error': '服务器上没有设置发布脚本（FB_DEPLOY_CMD）'})
+            if c.execute("SELECT 1 FROM deploys WHERE status='running'").fetchone(): return self.send(409, {'error': '上一次发布还在进行，稍后再试'})
+            note = clip(d.get('note'), 1000).strip()
+            if p == 'deploy':
+                ref = clip(d.get('ref'), 100).strip()
+                if ref and not re.fullmatch(r'[A-Za-z0-9._/-]+', ref): return self.send(400, {'error': '版本号只能包含字母、数字和 . _ / -'})
+                items = [int(num(x)) for x in (d.get('items') or [])[:50] if int(num(x)) > 0]
+                action, rb = 'deploy', None
+            else:
+                rb = int(p.split('/')[1]); old = c.execute("SELECT * FROM deploys WHERE id=? AND action='deploy'", (rb,)).fetchone()
+                if not old: return self.send(404, {'error': '没有这次发布'})
+                action, ref, items = 'rollback', '', json.loads(old['items'] or '[]')
+            did = c.execute('INSERT INTO deploys (action,ref,items,note,rollback_of,author,status,output,created) VALUES (?,?,?,?,?,?,?,?,?)',
+                            (action, ref, json.dumps(items), note, rb, name, 'running', '', now)).lastrowid
+            threading.Thread(target=run_deploy, args=(did, action, ref, rb, name), daemon=True).start()
+            return self.send(200, {'deploy': dict(c.execute('SELECT * FROM deploys WHERE id=?', (did,)).fetchone())})
+        return self.send(404, {'error': 'not found'})
+
     MIME = {'.js': 'text/javascript; charset=utf-8', '.html': 'text/html; charset=utf-8', '.css': 'text/css; charset=utf-8', '.txt': 'text/plain; charset=utf-8', '.svg': 'image/svg+xml', '.png': 'image/png'}
     def static(self, rel):
         f = os.path.abspath(os.path.join(CLIENT, rel))
@@ -363,12 +430,48 @@ def notify(what, item, who, text, quote=None, force=False):
     payload = ({'msg_type': 'interactive', 'card': {'config': {'wide_screen_mode': True}, 'header': {'title': {'tag': 'plain_text', 'content': title}, 'template': tpl},
                 'elements': [{'tag': 'markdown', 'content': '\n'.join(lines)}] + ([{'tag': 'action', 'actions': btns}] if deep.startswith('http') else [])}}
                if NOTIFY_KIND == 'feishu' else {'event': what, 'title': title, 'who': who, 'text': text, 'item': {k: item.get(k) for k in ('id', 'page', 'url', 'title', 'status', 'kind', 'priority', 'author', 'body')}})
+    push(payload)
+
+def card(title, md, buttons=(), tpl='blue'):
+    """汇总、发布结果等通知的卡片（飞书格式；FB_NOTIFY_KIND=json 时为原样 JSON）。"""
+    if NOTIFY_KIND != 'feishu': return {'event': 'digest', 'title': title, 'text': md, 'buttons': [{'text': t, 'url': u} for t, u in buttons]}
+    acts = [{'tag': 'button', 'text': {'tag': 'plain_text', 'content': t}, 'url': u, 'type': 'primary' if i == 0 else 'default'} for i, (t, u) in enumerate(buttons)]
+    return {'msg_type': 'interactive', 'card': {'config': {'wide_screen_mode': True}, 'header': {'title': {'tag': 'plain_text', 'content': title}, 'template': tpl},
+            'elements': [{'tag': 'markdown', 'content': md}] + ([{'tag': 'action', 'actions': acts}] if acts else [])}}
+
+def push(payload):
+    """后台发送，失败不影响主流程。"""
+    if not NOTIFY_URL: return
     def go():
         try:
             import urllib.request
             urllib.request.urlopen(urllib.request.Request(NOTIFY_URL, data=json.dumps(payload, ensure_ascii=False).encode(), headers={'Content-Type': 'application/json'}), timeout=10).read()
         except Exception: pass
     threading.Thread(target=go, daemon=True).start()
+
+def triaged(item):
+    """待分诊的任务里，agent 已经回复过、之后没有人再说话的，算已分诊（等负责人点「可以做」），定时任务不用再看。"""
+    last_ai = max([x['created'] for x in item['replies'] if x['ai']] or [0])
+    last_human = max([item['created']] + [x['created'] for x in item['replies'] if not x['ai']])
+    return last_ai > last_human
+
+def run_deploy(did, action, ref, rb, who):
+    """在后台运行发布脚本。脚本是服务器上固定的那一个，参数只通过环境变量传，不经过 shell。"""
+    import shlex, subprocess
+    env = dict(os.environ, FB_DEPLOY_ACTION=action, FB_DEPLOY_ID=str(did), FB_DEPLOY_REF=ref, FB_ROLLBACK_ID=str(rb or ''))
+    for k in ('FB_TEAM_CODE', 'FB_ADMIN_CODE', 'FB_AGENT_CODE', 'FB_NOTIFY_URL'): env.pop(k, None)   # 脚本用不到口令
+    try:
+        p = subprocess.run(shlex.split(DEPLOY_CMD), env=env, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, timeout=DEPLOY_TIMEOUT)
+        status, out = ('ok' if p.returncode == 0 else 'failed'), p.stdout.decode('utf-8', 'replace')
+    except subprocess.TimeoutExpired as e:
+        status, out = 'failed', (e.stdout or b'').decode('utf-8', 'replace') + f'\n超时（{DEPLOY_TIMEOUT} 秒）'
+    except OSError as e:
+        status, out = 'failed', f'脚本没能运行：{e}'
+    with LOCK, db() as c:
+        c.execute('UPDATE deploys SET status=?, output=?, finished=? WHERE id=?', (status, out[-6000:], time.time(), did))
+    if status != 'ok':
+        what = '发布' if action == 'deploy' else f'回滚到第 {rb} 次发布之前'
+        push(card(f'{what}失败 · 第 {did} 次', f'**{who}** 发起的{what}没有成功，正式站可能没有变化，也可能只改了一部分。\n\n输出末尾：\n```\n{out[-800:]}\n```', tpl='red'))
 
 def stats(c):
     """一次通过率 = 通过的任务里，从没被「再改 / 改回来」过的比例；交付用时 = 提出 → 负责人「通过」。"""

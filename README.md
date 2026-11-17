@@ -24,6 +24,7 @@
 - **负责人偏好手册**：agent 把负责人每次「再改」「选 A 不选 B」背后的标准记下来，动手前先读，返工越来越少。
 - **度量**：一次通过率、平均交付用时、返工次数。
 - **通知**：新意见、方案、交付报告推送到飞书群，卡片上有「在页面上看」「任务汇总」按钮。
+- **定时自动处理**：agent 每小时跑一轮，分诊、执行、发布、交付报告、发汇总；没有新事不打扰。发布和飞书都由服务器代办，云端只存一把不能拍板的 agent 口令。见 [docs/autopilot.md](docs/autopilot.md)。
 
 ## 它解决什么问题
 
@@ -160,8 +161,10 @@ client/vendor/             html-to-image（MIT）
 tools/backfill_shots.js    给旧批注补拍截图（Playwright）
 tools/snap.js              截改前 / 改后图，给交付报告用（Playwright）
 tools/deliver.py           提交交付报告（只用标准库）
+tools/fb.py                agent 命令行：check / md / reply / propose / pref / digest / deploy / rollback
 tools/notify_feishu.py     agent 完成工作后发飞书通知
-deploy/                    nginx、systemd 示例
+deploy/                    nginx、systemd、发布脚本示例
+docs/autopilot.md          定时自动处理：凭据怎么放、服务器上怎么装、定时任务的指令模板
 tests/test_server.py       服务端测试：python3 -m unittest discover tests
 AGENTS.md                  给 AI agent 的接入与使用说明
 ```
