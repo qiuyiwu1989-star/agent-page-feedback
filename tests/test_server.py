@@ -55,8 +55,8 @@ class ServerTest(unittest.TestCase):
         self.assertEqual(self.req('files/' + it['files'][0]['id'], code='')[0], 401)   # 附件也要口令
         it = json.loads(self.req(f'items/{it["id"]}/reply', {'body': '同意', 'images': [DATA_PNG]}, name='李四', cid='c2')[1])['item']
         self.assertEqual(len(it['replies'][0]['files']), 1)
-        it = json.loads(self.req(f'items/{it["id"]}/status', {'status': 'done', 'note': '已把标题改为 40px'}, name='Claude', cid='agent')[1])['item']
-        self.assertEqual(it['status'], 'done'); self.assertIn('已完成', it['replies'][-1]['body'])
+        it = json.loads(self.req(f'items/{it["id"]}/status', {'status': 'done', 'note': '已把标题改为 40px'}, code='admin-code', name='负责人', cid='boss')[1])['item']
+        self.assertEqual(it['status'], 'done'); self.assertIn('已完成', it['replies'][-1]['body'])   # 负责人可以直接定为已完成（agent 的见 test_team_cannot_bypass_owner）
         it = json.loads(self.req(f'items/{it["id"]}/shot', {'shot': DATA_PNG})[1])['item']
         self.assertEqual([f['kind'] for f in it['files']].count('shot'), 1)   # 替换而不是追加
 
@@ -117,6 +117,29 @@ class ServerTest(unittest.TestCase):
         self.req(f'items/{j}/report', {'summary': '改好了'}, name='Claude')
         self.req(f'items/{j}/decide', {'action': 'accept'}, code='admin-code', name='负责人')
         s = json.loads(self.req('stats')[1]); self.assertEqual(s['first_pass'], 0.5)
+
+    def test_team_cannot_bypass_owner(self):
+        iid = self.new_item()['id']
+        self.assertEqual(self.req(f'items/{iid}/status', {'status': 'approved'}, name='Claude')[0], 403)   # 「可以做」只能负责人给
+        self.assertEqual(self.req(f'items/{iid}/status', {'status': 'done'}, name='Claude')[0], 400)        # 不写改了什么不行
+        it = json.loads(self.req(f'items/{iid}/status', {'status': 'done', 'note': '标题改为 40px'}, name='Claude')[1])['item']
+        self.assertEqual(it['status'], 'review'); self.assertEqual(it['replies'][-1]['kind'], 'report')    # 按旧接口写「已完成」= 交付报告，等验收
+        self.assertEqual(it['replies'][-1]['body'], '标题改为 40px')
+        it = json.loads(self.req(f'items/{iid}/status', {'status': 'done'}, code='admin-code', name='负责人')[1])['item']
+        self.assertEqual(it['status'], 'done')   # 负责人可以直接改
+
+    def test_corrections_export(self):
+        iid = self.new_item(body='联系方式放到页脚')['id']
+        self.req(f'items/{iid}/report', {'summary': '加在了页头右上角'}, name='Claude')
+        self.req(f'items/{iid}/decide', {'action': 'rework', 'note': '我说的是页脚，不是页头'}, code='admin-code', name='负责人')
+        self.req(f'items/{iid}/report', {'summary': '挪到了页脚'}, name='Codex')
+        self.req(f'items/{iid}/decide', {'action': 'revert', 'note': '字号太小，先改回来'}, code='admin-code', name='负责人')
+        st, b, ct = self.req('corrections.jsonl'); self.assertEqual(st, 200); self.assertIn('ndjson', ct)
+        rows = [json.loads(x) for x in b.decode().splitlines() if f'#{iid}"' in x]
+        self.assertEqual([(r['决定'], r['我做的'], r['谁做的'], r['他的原话'], r['谁打回的']) for r in rows],
+                         [('再改', '加在了页头右上角', 'Claude', '我说的是页脚，不是页头', '负责人'), ('改回来', '挪到了页脚', 'Codex', '字号太小，先改回来', '负责人')])
+        self.assertEqual(rows[0]['任务'], '联系方式放到页脚')
+        self.assertEqual(self.req('corrections.jsonl', code='')[0], 401)
 
     def test_prefs_and_export(self):
         st, b, _ = self.req('prefs', {'text': '不要星号和备注，文案要短', 'item': 1}, name='Claude'); self.assertEqual(st, 200)
