@@ -54,7 +54,8 @@
   GET  queue.json 里每条待分诊任务带 triaged（agent 已回复过、之后没有人再说话），summary 里是本轮要做的数量
   POST digest                    agent 发汇总到负责人的飞书群（只限 agent / 管理员口令）{title, markdown, buttons: [{text, url}]}；
                                  飞书地址只在服务器上。汇总也存进数据库（digests），GET digests 查看
-  POST deploy                    发布（只限 agent / 管理员口令）{ref, items: [编号], note} → {deploy: {id, status: running}}；同一时间只跑一个
+  POST deploy                    发布（只限 agent / 管理员口令）{ref, items: [编号], note, bundle} → {deploy: {id, status: running}}；同一时间只跑一个
+                                 bundle：按文件发布的发布包（tar.gz 的 base64，不超过 20 MB），传给脚本 FB_DEPLOY_BUNDLE，见 tools/deploy_files.py
   GET  deploys / deploys/<id>    发布登记（编号、谁、哪些任务、版本、状态、输出末尾）
   POST deploys/<id>/rollback     把整个网站恢复到第 <id> 次发布之前（只限 agent / 管理员口令；会新登记一次 rollback）
   GET  stats                     统计：各状态数量、一次通过率、平均交付用时、返工次数
@@ -419,14 +420,22 @@ class H(BaseHTTPRequestHandler):
                 ref = clip(d.get('ref'), 100).strip()
                 if ref and not re.fullmatch(r'[A-Za-z0-9._/-]+', ref): return self.send(400, {'error': '版本号只能包含字母、数字和 . _ / -'})
                 items = [int(num(x)) for x in (d.get('items') or [])[:50] if int(num(x)) > 0]
-                action, rb = 'deploy', None
+                action, rb, bundle = 'deploy', None, None
+                if d.get('bundle'):
+                    try: bundle = base64.b64decode(str(d['bundle']), validate=True)
+                    except ValueError: return self.send(400, {'error': '发布包不是 base64'})
+                    if len(bundle) > 20_000_000 or bundle[:2] != b'\x1f\x8b': return self.send(400, {'error': '发布包要是 tar.gz，不超过 20 MB'})
             else:
                 rb = int(p.split('/')[1]); old = c.execute("SELECT * FROM deploys WHERE id=? AND action='deploy'", (rb,)).fetchone()
                 if not old: return self.send(404, {'error': '没有这次发布'})
-                action, ref, items = 'rollback', '', json.loads(old['items'] or '[]')
+                action, ref, items, bundle = 'rollback', '', json.loads(old['items'] or '[]'), None
             did = c.execute('INSERT INTO deploys (action,ref,items,note,rollback_of,author,status,output,created) VALUES (?,?,?,?,?,?,?,?,?)',
                             (action, ref, json.dumps(items), note, rb, name, 'running', '', now)).lastrowid
-            threading.Thread(target=run_deploy, args=(did, action, ref, rb, name), daemon=True).start()
+            path = ''
+            if bundle:
+                bd = os.path.join(os.path.dirname(DB), 'deploy-bundles'); os.makedirs(bd, exist_ok=True); path = os.path.join(bd, f'{did}.tar.gz')
+                with open(path, 'wb') as fo: fo.write(bundle)
+            threading.Thread(target=run_deploy, args=(did, action, ref, rb, name, path), daemon=True).start()
             return self.send(200, {'deploy': dict(c.execute('SELECT * FROM deploys WHERE id=?', (did,)).fetchone())})
         return self.send(404, {'error': 'not found'})
 
@@ -488,10 +497,10 @@ def triaged(item):
     last_human = max([item['created']] + [x['created'] for x in item['replies'] if not x['ai']])
     return last_ai > last_human
 
-def run_deploy(did, action, ref, rb, who):
+def run_deploy(did, action, ref, rb, who, bundle=''):
     """在后台运行发布脚本。脚本是服务器上固定的那一个，参数只通过环境变量传，不经过 shell。"""
     import shlex, subprocess
-    env = dict(os.environ, FB_DEPLOY_ACTION=action, FB_DEPLOY_ID=str(did), FB_DEPLOY_REF=ref, FB_ROLLBACK_ID=str(rb or ''))
+    env = dict(os.environ, FB_DEPLOY_ACTION=action, FB_DEPLOY_ID=str(did), FB_DEPLOY_REF=ref, FB_ROLLBACK_ID=str(rb or ''), FB_DEPLOY_BUNDLE=bundle, FB_DB=DB)
     for k in ('FB_TEAM_CODE', 'FB_ADMIN_CODE', 'FB_AGENT_CODE', 'FB_NOTIFY_URL'): env.pop(k, None)   # 脚本用不到口令
     try:
         p = subprocess.run(shlex.split(DEPLOY_CMD), env=env, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, timeout=DEPLOY_TIMEOUT)
@@ -504,6 +513,7 @@ def run_deploy(did, action, ref, rb, who):
         c.execute('UPDATE deploys SET status=?, output=?, finished=? WHERE id=?', (status, out[-6000:], time.time(), did))
     if status != 'ok':
         what = '发布' if action == 'deploy' else f'回滚到第 {rb} 次发布之前'
+        if '冲突' in out[-3000:]: what += '（冲突，没有改动）'
         push(card(f'{what}失败 · 第 {did} 次', f'**{who}** 发起的{what}没有成功，正式站可能没有变化，也可能只改了一部分。\n\n输出末尾：\n```\n{out[-800:]}\n```', tpl='red'))
 
 def stats(c):

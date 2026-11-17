@@ -71,7 +71,7 @@ PY
   mkdir -p "$CLIENT_DIR"; cp -a "$NEW/client/." "$CLIENT_DIR/"
   mkdir -p "$APP/tools" "$APP/deploy" "$APP/docs"; cp -a "$NEW/tools/." "$APP/tools/"
   cp -a "$NEW/deploy/deploy.sh.example" "$APP/deploy/"; cp -a "$NEW/docs/autopilot.md" "$APP/docs/"
-  chown -R "$RUNAS" "$CLIENT_DIR" "$APP/tools" 2>/dev/null || true
+  chown "$RUNAS" "$SERVER_FILE" 2>/dev/null || true; chown -R "$RUNAS" "$CLIENT_DIR" "$APP/tools" "$APP/deploy" "$APP/docs" 2>/dev/null || true
   NEWKEY=""; NEWENROLL=""
   if [ -n "$ENROLL_MODE" ] && [ -n "$ENVF" ] && [ -f "$ENVF" ] && ! grep -qE '^FB_AGENT_(CODE|ENROLL)=.+' "$ENVF"; then
     NEWENROLL="$(python3 -c 'import secrets; print(secrets.token_urlsafe(18))')"

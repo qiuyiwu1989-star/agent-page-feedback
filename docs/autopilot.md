@@ -49,6 +49,29 @@ agent 口令的权限：和成员一样能读任务、回复、出方案、交�
 
 4. **在云端环境里存 agent 口令**：由 agent 发起安全表单，负责人把第 2 步的口令粘贴进去（主机名填网站域名，请求头 `X-FB-Key`）。
 
+### 网站不是 git 仓库时：按文件发布
+
+有的网站直接在服务器上改文件，还可能有别的 agent 同时在改。这时用 [`tools/deploy_files.py`](../tools/deploy_files.py) 当发布脚本：
+
+```
+FB_DEPLOY_CMD=python3 -I /opt/agent-page-feedback/tools/deploy_files.py
+FB_SITE_ROOT=/var/www/example.com/site
+FB_DEPLOY_BACKUPS=/opt/agent-page-feedback/deploy-backups
+```
+
+agent 这样发布：
+
+```bash
+export FB_SITE_URL=https://example.com/site/
+python3 tools/fb.py fetch work 页面.html css/a.css       # 先从正式站取最新版本（记下指纹）
+# 在 work/ 里修改
+python3 tools/fb.py deploy --dir work --item 编号        # 只发布改过的文件
+```
+
+- **防冲突**：发布时逐个检查文件还是 agent 取的那一版。别人在这期间改过 → 报「冲突」，什么都不改。
+- **只备份动到的文件**，回滚也只恢复这些文件；回滚前同样检查之后有没有人改过。
+- 服务没有写权限的文件，发布前就会停下来，不会改一半。
+
 ## 三、两种「改回来」
 
 - **单条任务改回来**（常用）：agent 用 `git revert` 撤销那条任务的提交，再发布一次。只撤这一条，不影响别的任务。

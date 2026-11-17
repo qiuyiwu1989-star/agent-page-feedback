@@ -5,6 +5,7 @@
   FB_KEY   agent 口令（FB_AGENT_CODE）。在 Claude Code 云端环境里，口令存在环境的密钥里、由网络代理自动加到请求头
            X-FB-Key 上，这时不用设置 FB_KEY（这里会发一个占位值，代理会替换）。也可以用 FB_CODE（成员口令，但不能发布、发汇总）
   FB_NAME  署名，默认 Claude
+  FB_SITE_URL  网站根地址（按文件发布时用来取文件），例如 https://example.com/site/
 
 用法：
   python3 tools/fb.py check                     看本轮有没有要做的事：有 → 退出码 0 并打印数量；没有 → 退出码 10
@@ -15,10 +16,15 @@
   python3 tools/fb.py pref "一句话标准" [--item 编号]
   python3 tools/fb.py digest "标题" 内容.md [--button "文字=地址"]...
   python3 tools/fb.py deploy [--ref 提交号] [--item 编号]... [--note 说明]       等发布结束，打印发布编号（回滚编号）
+
+  按文件发布（网站不是 git 仓库、直接在服务器上改文件时）：
+  python3 tools/fb.py fetch 工作目录 页面.html css/a.css ...    从正式站取最新版本，记下指纹（改之前一定先取）
+  （在工作目录里修改这些文件，或新增文件）
+  python3 tools/fb.py deploy --dir 工作目录 --item 编号 [--delete 路径]   只发布改过的文件；有人同时改过同一个文件会报冲突
   python3 tools/fb.py rollback 发布编号 [--note 说明]                          整站恢复到这次发布之前
   python3 tools/fb.py deploys                   最近的发布登记
 """
-import argparse, json, os, sys, time, urllib.error, urllib.parse, urllib.request
+import argparse, base64, hashlib, io, json, os, sys, tarfile, time, urllib.error, urllib.parse, urllib.request
 
 API = os.environ.get('FB_API', '').rstrip('/') + '/'
 KEY = os.environ.get('FB_KEY') or os.environ.get('FB_CODE') or 'injected-by-proxy'
@@ -34,6 +40,51 @@ def call(path, body=None, raw=False):
         with urllib.request.urlopen(req, timeout=60) as r: b = r.read()
     except urllib.error.HTTPError as e: sys.exit(f'失败 {e.code}：{e.read().decode("utf-8", "replace")[:300]}')
     return b.decode() if raw else json.loads(b)
+
+
+BASE = '.fb-base.json'
+
+
+def fetch(work, paths):
+    site = os.environ.get('FB_SITE_URL', '').rstrip('/') + '/'
+    if site == '/': sys.exit('请设置 FB_SITE_URL，例如 https://example.com/site/')
+    bf = os.path.join(work, BASE); base = json.load(open(bf)) if os.path.exists(bf) else {}
+    for rel in paths:
+        rel = rel.strip('/'); dst = os.path.join(work, rel)
+        try:
+            with urllib.request.urlopen(urllib.request.Request(site + urllib.parse.quote(rel), headers={'Cache-Control': 'no-cache'}), timeout=60) as r: b = r.read()
+        except urllib.error.HTTPError as e:
+            if e.code != 404: sys.exit(f'取不到 {rel}：{e.code}')
+            base[rel] = None; print(f'  {rel}：正式站上没有（会作为新文件）'); continue
+        os.makedirs(os.path.dirname(dst) or '.', exist_ok=True)
+        with open(dst, 'wb') as f: f.write(b)
+        base[rel] = hashlib.sha256(b).hexdigest(); print(f'  {rel}：{len(b)} 字节')
+    with open(bf, 'w') as f: json.dump(base, f, indent=1)
+
+
+def bundle(work, deletes):
+    """工作目录里和取来时不一样的文件（以及新文件）打成发布包。"""
+    bf = os.path.join(work, BASE); base = json.load(open(bf)) if os.path.exists(bf) else {}
+    files = {}
+    for dp, dn, fn in os.walk(work):
+        for n in fn:
+            p = os.path.join(dp, n); rel = os.path.relpath(p, work).replace(os.sep, '/')
+            if rel == BASE: continue
+            b = open(p, 'rb').read()
+            if rel in base and base[rel] == hashlib.sha256(b).hexdigest(): continue   # 没改
+            files[rel] = b
+    dels = {d.strip('/'): base.get(d.strip('/')) for d in deletes}
+    for d, h in dels.items():
+        if not h: sys.exit(f'要删除的 {d} 没有先 fetch，不知道它现在是哪一版')
+    if not files and not dels: sys.exit('工作目录里没有改动')
+    man = {'files': {rel: {'base': base.get(rel)} for rel in files}, 'delete': dels}
+    buf = io.BytesIO()
+    with tarfile.open(fileobj=buf, mode='w:gz') as t:
+        for name, b in [('manifest.json', json.dumps(man, ensure_ascii=False).encode())] + [('files/' + r, b) for r, b in files.items()]:
+            ti = tarfile.TarInfo(name); ti.size = len(b); ti.mtime = int(time.time()); t.addfile(ti, io.BytesIO(b))
+    for rel in files: print(f'  {"修改" if base.get(rel) else "新增"} {rel}')
+    for rel in dels: print(f'  删除 {rel}')
+    return base64.b64encode(buf.getvalue()).decode()
 
 
 def wait(did):
@@ -52,6 +103,8 @@ def main():
     p = sub.add_parser('pref'); p.add_argument('text'); p.add_argument('--item', type=int)
     p = sub.add_parser('digest'); p.add_argument('title'); p.add_argument('file'); p.add_argument('--button', action='append', default=[])
     p = sub.add_parser('deploy'); p.add_argument('--ref', default=''); p.add_argument('--item', type=int, action='append', default=[]); p.add_argument('--note', default='')
+    p.add_argument('--dir', help='按文件发布：工作目录'); p.add_argument('--delete', action='append', default=[])
+    p = sub.add_parser('fetch'); p.add_argument('dir'); p.add_argument('paths', nargs='+')
     p = sub.add_parser('rollback'); p.add_argument('deploy', type=int); p.add_argument('--note', default='')
     a = ap.parse_args()
 
@@ -74,8 +127,13 @@ def main():
         btns = [{'text': b.split('=', 1)[0], 'url': b.split('=', 1)[1]} for b in a.button if '=' in b]
         r = call('digest', {'title': a.title, 'markdown': md, 'buttons': btns})
         print('汇总已发到飞书群' if r['sent'] else '汇总已存档（服务器没有设置飞书地址，没有推送）'); return
+    if a.cmd == 'fetch': fetch(a.dir, a.paths); return
     if a.cmd in ('deploy', 'rollback'):
-        d = call('deploy', {'ref': a.ref, 'items': a.item, 'note': a.note}) if a.cmd == 'deploy' else call(f'deploys/{a.deploy}/rollback', {'note': a.note})
+        if a.cmd == 'deploy':
+            body = {'ref': a.ref, 'items': a.item, 'note': a.note}
+            if a.dir: body['bundle'] = bundle(a.dir, a.delete)
+            d = call('deploy', body)
+        else: d = call(f'deploys/{a.deploy}/rollback', {'note': a.note})
         d = wait(d['deploy']['id'])
         print(d['output'][-1500:])
         if d['status'] != 'ok': sys.exit(f'第 {d["id"]} 次{"发布" if a.cmd == "deploy" else "回滚"}失败（{d["status"]}）')
