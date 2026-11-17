@@ -141,6 +141,15 @@ class ServerTest(unittest.TestCase):
         self.assertEqual(rows[0]['任务'], '联系方式放到页脚')
         self.assertEqual(self.req('corrections.jsonl', code='')[0], 401)
 
+    def test_stats_ignore_deleted(self):
+        before = json.loads(self.req('stats')[1])
+        iid = self.new_item()['id']
+        self.req(f'items/{iid}/report', {'summary': '试一下'}, name='Claude')
+        self.req(f'items/{iid}/decide', {'action': 'rework', 'note': '不对'}, code='admin-code', name='负责人')
+        mid = json.loads(self.req('stats')[1]); self.assertEqual((mid['reworks'], mid['reports']), (before['reworks'] + 1, before['reports'] + 1))
+        self.req(f'items/{iid}/delete', {}, code='admin-code')
+        after = json.loads(self.req('stats')[1]); self.assertEqual((after['reworks'], after['reports']), (before['reworks'], before['reports']))
+
     def test_prefs_and_export(self):
         st, b, _ = self.req('prefs', {'text': '不要星号和备注，文案要短', 'item': 1}, name='Claude'); self.assertEqual(st, 200)
         pid = json.loads(b)['pref']['id']
