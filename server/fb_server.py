@@ -400,12 +400,13 @@ def stats(c):
     for r in c.execute('SELECT status, COUNT(*) n FROM items WHERE deleted=0 GROUP BY status'): cnt[r['status']] = r['n']
     acc = c.execute("""SELECT i.id, i.created, MAX(r.created) t FROM items i JOIN replies r ON r.item=i.id
                        WHERE i.deleted=0 AND r.kind='decision' AND r.meta LIKE '%"action": "accept"%' GROUP BY i.id""").fetchall()
-    rework = {r['item'] for r in c.execute("""SELECT DISTINCT item FROM replies WHERE kind='decision' AND (meta LIKE '%"action": "rework"%' OR meta LIKE '%"action": "revert"%')""")}
-    nrw = c.execute("""SELECT COUNT(*) FROM replies WHERE kind='decision' AND (meta LIKE '%"action": "rework"%' OR meta LIKE '%"action": "revert"%')""").fetchone()[0]
+    live = 'item IN (SELECT id FROM items WHERE deleted=0)'   # 已删除的任务（测试、误建）不计入
+    rework = {r['item'] for r in c.execute(f"""SELECT DISTINCT item FROM replies WHERE kind='decision' AND {live} AND (meta LIKE '%"action": "rework"%' OR meta LIKE '%"action": "revert"%')""")}
+    nrw = c.execute(f"""SELECT COUNT(*) FROM replies WHERE kind='decision' AND {live} AND (meta LIKE '%"action": "rework"%' OR meta LIKE '%"action": "revert"%')""").fetchone()[0]
     hours = [(r['t'] - r['created']) / 3600 for r in acc]
     return {'count': cnt, 'total': sum(cnt.values()), 'accepted': len(acc), 'first_pass': round(sum(1 for r in acc if r['id'] not in rework) / len(acc), 3) if acc else None,
             'avg_hours': round(sum(hours) / len(hours), 1) if hours else None, 'reworks': nrw,
-            'reports': c.execute("SELECT COUNT(*) FROM replies WHERE kind='report'").fetchone()[0], 'prefs': c.execute('SELECT COUNT(*) FROM prefs WHERE active=1').fetchone()[0]}
+            'reports': c.execute(f"SELECT COUNT(*) FROM replies WHERE kind='report' AND {live}").fetchone()[0], 'prefs': c.execute('SELECT COUNT(*) FROM prefs WHERE active=1').fetchone()[0]}
 
 def num(v):
     try: return float(v)
