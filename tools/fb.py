@@ -137,7 +137,7 @@ def main():
         d = wait(d['deploy']['id'])
         print(d['output'][-1500:])
         if d['status'] != 'ok': sys.exit(f'第 {d["id"]} 次{"发布" if a.cmd == "deploy" else "回滚"}失败（{d["status"]}）')
-        print(f'第 {d["id"]} 次发布成功。回滚编号：deploy#{d["id"]}' if a.cmd == 'deploy' else f'第 {d["id"]} 次（回滚）成功：整站已恢复到第 {a.deploy} 次发布之前')
+        print(f'第 {d["id"]} 次发布成功。回滚编号：deploy#{d["id"]}' if a.cmd == 'deploy' else f'第 {d["id"]} 次（回滚）成功：已撤销第 {a.deploy} 次发布')
 
 
 if __name__ == '__main__':
