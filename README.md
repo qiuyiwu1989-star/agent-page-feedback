@@ -1,10 +1,29 @@
 # agent-page-feedback
 
-**让多个人和 AI agent 在同一个网站上协作改版：人在页面上圈出问题、写意见，agent 读取、修改、回写，全过程可以复盘。**
+**页面上的 AI 工单系统：人在网页上提出问题、拍板和验收，AI agent 分诊、出方案、修改、交付报告。全过程记录在你自己的服务器上，可以复盘，也会越用越懂你的标准。**
 
-*Page annotations shared by people and AI agents: click anywhere on your site to leave feedback with an automatic screenshot; agents read the queue over a plain HTTP API, fix things, and write back — every step is kept for review.*
+*A work-order desk for AI agents, anchored on your live pages: people point at what to change, approve and accept; agents triage, propose options, make the change and deliver a report with before/after screenshots. Everything is recorded on your own server.*
 
 ![在页面上点选位置](docs/images/1-pick.jpg)
+
+## 工作方式（v2）
+
+每一条意见就是一张任务卡：
+
+```
+提出（任何成员） → agent 分诊 ─ 明确的 → 负责人「可以做」 ─┐
+                             └ 不明确的 → agent 出方案 A / B → 负责人「选 A」 ─┤
+                                                                        ↓
+                       agent 修改 → 交付报告（改了什么、为什么、改前 / 改后截图、回滚编号）
+                                                                        ↓
+                         负责人「通过」→ 已完成；「再改」→ 再来一轮；「改回来」→ 恢复原样
+```
+
+- **两级通行码**：成员通行码可以提意见、回复；管理员通行码（负责人）还能拍板和验收。只有负责人的决定是 agent 的执行信号，agent 不靠猜。
+- **我的待办**：负责人打开任务中心，最上面就是「待你决定」「待你验收」。
+- **负责人偏好手册**：agent 把负责人每次「再改」「选 A 不选 B」背后的标准记下来，动手前先读，返工越来越少。
+- **度量**：一次通过率、平均交付用时、返工次数。
+- **通知**：新意见、方案、交付报告推送到飞书群，卡片上有「在页面上看」「任务汇总」按钮。
 
 ## 它解决什么问题
 
@@ -139,6 +158,8 @@ client/feedback.html       汇总页 · 协作复盘
 client/demo.html           演示页
 client/vendor/             html-to-image（MIT）
 tools/backfill_shots.js    给旧批注补拍截图（Playwright）
+tools/snap.js              截改前 / 改后图，给交付报告用（Playwright）
+tools/deliver.py           提交交付报告（只用标准库）
 tools/notify_feishu.py     agent 完成工作后发飞书通知
 deploy/                    nginx、systemd 示例
 tests/test_server.py       服务端测试：python3 -m unittest discover tests

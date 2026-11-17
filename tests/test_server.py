@@ -56,7 +56,7 @@ class ServerTest(unittest.TestCase):
         it = json.loads(self.req(f'items/{it["id"]}/reply', {'body': '同意', 'images': [DATA_PNG]}, name='李四', cid='c2')[1])['item']
         self.assertEqual(len(it['replies'][0]['files']), 1)
         it = json.loads(self.req(f'items/{it["id"]}/status', {'status': 'done', 'note': '已把标题改为 40px'}, name='Claude', cid='agent')[1])['item']
-        self.assertEqual(it['status'], 'done'); self.assertIn('已改好', it['replies'][-1]['body'])
+        self.assertEqual(it['status'], 'done'); self.assertIn('已完成', it['replies'][-1]['body'])
         it = json.loads(self.req(f'items/{it["id"]}/shot', {'shot': DATA_PNG})[1])['item']
         self.assertEqual([f['kind'] for f in it['files']].count('shot'), 1)   # 替换而不是追加
 
@@ -80,6 +80,54 @@ class ServerTest(unittest.TestCase):
         self.assertEqual(st, 200)
         d = json.loads(self.req('decisions?scope=v1-vs-v2')[1]); self.assertEqual(d['decisions']['学分:课程A']['choice'], 'zhang')
 
+    def test_v2_workflow(self):
+        """工单式流程：分诊出方案 → 负责人选方案 → 交付报告 → 再改 → 再交付 → 通过；只有管理员能做决定。"""
+        it = self.new_item(body='首页数字太挤')
+        iid = it['id']; self.assertEqual(it['arole'], 'team')
+        # 成员不能做决定
+        st, b, _ = self.req(f'items/{iid}/decide', {'action': 'approve'}); self.assertEqual(st, 403)
+        # agent 出方案 → 待决定
+        st, b, _ = self.req(f'items/{iid}/propose', {'summary': '两个方向', 'options': [{'key': 'A', 'title': '五列等宽'}, {'key': 'B', 'title': '两行'}], 'images': [DATA_PNG]}, name='Claude')
+        it = json.loads(b)['item']; self.assertEqual(it['status'], 'question'); prop = it['replies'][-1]
+        self.assertEqual(prop['kind'], 'proposal'); self.assertTrue(prop['ai']); self.assertEqual(prop['meta']['options'][0]['key'], 'A'); self.assertEqual(len(prop['files']), 1)
+        # 选方案必须带 option
+        st, b, _ = self.req(f'items/{iid}/decide', {'action': 'choose'}, code='admin-code', name='负责人'); self.assertEqual(st, 400)
+        st, b, _ = self.req(f'items/{iid}/decide', {'action': 'choose', 'option': 'A'}, code='admin-code', name='负责人')
+        it = json.loads(b)['item']; self.assertEqual(it['status'], 'approved'); self.assertEqual(it['signal'], 'choose'); self.assertEqual(it['replies'][-1]['role'], 'admin')
+        # queue：在「可以执行」里
+        q = json.loads(self.req('queue.json')[1]); self.assertIn(iid, [x['id'] for x in q['act']])
+        # 交付报告 → 待验收，改前 / 改后截图挂在报告上
+        rep = {'summary': '改成五列等宽', 'why': '负责人选了 A', 'changes': ['ui.css 第 12 行'], 'links': [{'name': '首页', 'url': 'https://example.com/'}], 'rollback': 'bk-001', 'before': DATA_PNG, 'after': DATA_PNG}
+        it = json.loads(self.req(f'items/{iid}/report', rep, name='Claude')[1])['item']
+        self.assertEqual(it['status'], 'review'); r = it['replies'][-1]
+        self.assertEqual(r['kind'], 'report'); self.assertEqual(r['meta']['rollback'], 'bk-001'); self.assertEqual(sorted(f['kind'] for f in r['files']), ['after', 'before'])
+        self.assertEqual(self.req(f'items/{iid}/report', {'summary': ''}, name='Claude')[0], 400)
+        # 再改要写意见
+        self.assertEqual(self.req(f'items/{iid}/decide', {'action': 'rework'}, code='admin-code', name='负责人')[0], 400)
+        it = json.loads(self.req(f'items/{iid}/decide', {'action': 'rework', 'note': '数字再大一点'}, code='admin-code', name='负责人')[1])['item']
+        self.assertEqual(it['status'], 'approved'); self.assertIn('数字再大一点', it['signal_note'])
+        self.req(f'items/{iid}/report', dict(rep, summary='数字放大到 46px'), name='Claude')
+        it = json.loads(self.req(f'items/{iid}/decide', {'action': 'accept'}, code='admin-code', name='负责人')[1])['item']
+        self.assertEqual(it['status'], 'done')
+        # 统计：通过 1 条，返工过所以一次通过率不算它
+        s = json.loads(self.req('stats')[1]); self.assertGreaterEqual(s['accepted'], 1); self.assertGreaterEqual(s['reworks'], 1); self.assertGreaterEqual(s['reports'], 2)
+        # 第二条：直接可以做 → 交付 → 通过，一次通过
+        j = self.new_item(body='按钮颜色')['id']
+        self.req(f'items/{j}/decide', {'action': 'approve'}, code='admin-code', name='负责人')
+        self.req(f'items/{j}/report', {'summary': '改好了'}, name='Claude')
+        self.req(f'items/{j}/decide', {'action': 'accept'}, code='admin-code', name='负责人')
+        s = json.loads(self.req('stats')[1]); self.assertEqual(s['first_pass'], 0.5)
+
+    def test_prefs_and_export(self):
+        st, b, _ = self.req('prefs', {'text': '不要星号和备注，文案要短', 'item': 1}, name='Claude'); self.assertEqual(st, 200)
+        pid = json.loads(b)['pref']['id']
+        self.assertIn('不要星号', json.loads(self.req('prefs')[1])['prefs'][-1]['text'])
+        j = self.new_item(body='待分诊的一条')['id']
+        md = self.req('export.md')[1].decode()
+        self.assertIn('负责人偏好手册', md); self.assertIn('不要星号', md); self.assertIn('待分诊', md); self.assertIn(f'#{j}', md)
+        self.assertEqual(self.req(f'prefs/{pid}/off', {})[0], 403)
+        self.assertEqual(self.req(f'prefs/{pid}/off', {}, code='admin-code')[0], 200)
+        self.assertNotIn('不要星号', self.req('export.md')[1].decode())
 
 if __name__ == '__main__':
     unittest.main()

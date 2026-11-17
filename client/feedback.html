@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <meta name="robots" content="noindex">
-<title>修改意见与协作复盘</title>
+<title>任务中心 · 修改意见与协作复盘</title>
 <style>
   /* 独立页面，自带配色；可以按项目改这几个变量 */
   :root { --gutter: clamp(16px, 4vw, 48px); --ai: #4F46E5; --ai-bg: #EEF2FF; --canvas: #F5F6F8; --surface: #fff; --sunken: #EEF0F4; --ink: #1F2430; --ink-2: #475069; --ink-3: #7A8399; --line: #E3E6EC; --line-strong: #CDD2DC; --link: #2446B8; --brand: #2446B8; --blue-600: #2446B8;
@@ -18,7 +18,7 @@
   .hero h1 { margin: 12px 0 6px; font-size: clamp(28px, 3.6vw, 40px); line-height: 1.2; display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
   .badge { display: inline-flex; align-items: center; height: 26px; padding: 0 10px; border-radius: 99px; background: #FEF3C7; color: #92400E; font-size: 12.5px; font-weight: 600; }
   .hero p { margin: 0; max-width: 58em; color: var(--ink-2); }
-  .how { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; margin: 20px 0 0; padding: 0; list-style: none; counter-reset: s; }
+  .how { display: grid; grid-template-columns: repeat(5, 1fr); gap: 12px; margin: 20px 0 0; padding: 0; list-style: none; counter-reset: s; }
   .how li { background: var(--surface); border: 1px solid var(--line); border-radius: 16px; padding: 14px 16px 14px 52px; position: relative; font-size: 13.5px; color: var(--ink-2); line-height: 1.7; counter-increment: s; }
   .how li::before { content: counter(s); position: absolute; left: 16px; top: 14px; width: 24px; height: 24px; border-radius: 50%; background: #1f2430; color: #fff; display: grid; place-items: center; font-size: 12.5px; font-weight: 600; }
   .how b { color: var(--ink); display: block; }
@@ -94,19 +94,42 @@
   .agent { margin-top: 40px; padding: 18px 20px; border-radius: 16px; background: var(--surface); border: 1px solid var(--line); font-size: 14px; color: var(--ink-2); }
   .agent h2 { font-size: 16px; margin: 0 0 6px; color: var(--ink); } .agent code, .agent pre { font: 12.5px/1.6 ui-monospace, Menlo, Consolas, monospace; }
   .agent pre { background: #f6f7f9; padding: 10px 12px; border-radius: 10px; overflow-x: auto; margin: 8px 0; white-space: pre; }
-  @media (max-width: 1000px) { .ov { grid-template-columns: repeat(3, 1fr); } }
+  /* v2：我的待办、决定按钮、方案与交付报告、偏好手册 */
+  .todo { margin-top: 26px; padding: 18px 20px 20px; border-radius: 20px; background: #FFF7ED; border: 1px solid #FED7AA; }
+  .todo > h2 { margin: 0 0 4px; font-size: 19px; } .todo > p { margin: 0 0 12px; font-size: 13.5px; color: #9A3412; }
+  .todo .cards { gap: 12px; } .todo-sub { margin: 14px 0 8px; font-size: 14px; color: #9A3412; }
+  .stag { margin-left: auto; height: 26px; display: inline-flex; align-items: center; padding: 0 10px; border-radius: 99px; color: #fff; font-size: 12.5px; font-weight: 600; }
+  .owner { font-size: 11px; font-weight: 700; color: #B91C1C; background: #FEE2E2; border-radius: 4px; padding: 0 5px; }
+  .dec { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; padding: 10px 12px; border-radius: 12px; background: #FFF7ED; border: 1px solid #FED7AA; }
+  .dec > span { font-size: 13px; font-weight: 600; color: #9A3412; margin-right: 4px; }
+  .dec button { height: 32px; padding: 0 14px; border-radius: 99px; border: 1px solid #FDBA74; background: #fff; color: #9A3412; font-size: 13px; cursor: pointer; }
+  .dec button.go { background: #EA580C; border-color: #EA580C; color: #fff; }
+  .msg.decision .bub { background: #FEF2F2; border: 1px solid #FECACA; color: #7F1D1D; } .dtag { font-size: 11px; font-weight: 700; color: #fff; background: #DC2626; border-radius: 4px; padding: 0 5px; margin-right: 4px; }
+  .rbox { display: grid; gap: 8px; white-space: normal; } .rbox h4 { margin: 0; font-size: 13px; color: var(--ai); } .rbox p { margin: 0; white-space: pre-wrap; }
+  .rbox ul { margin: 0; padding-left: 18px; font-size: 13px; } .rbox .why { color: var(--ink-2); font-size: 13px; } .rbox .rb { font-size: 12px; color: var(--ink-3); }
+  .opt { display: flex; gap: 10px; align-items: center; padding: 8px 10px; border-radius: 10px; background: #fff; border: 1px solid #C7D2FE; font-size: 13.5px; }
+  .opt b { color: var(--ai); white-space: nowrap; } .opt span { flex: 1; min-width: 0; } .opt button { flex: none; }
+  .ba { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; } .ba figure { margin: 0; } .ba figcaption { font-size: 12px; color: var(--ink-3); margin-bottom: 3px; }
+  .ba img { width: 100%; height: 150px; object-fit: cover; object-position: top; border-radius: 10px; border: 1px solid var(--line); cursor: zoom-in; background: var(--sunken); }
+  .cd.flash { animation: fl 1.4s ease 2; } @keyframes fl { 50% { box-shadow: 0 0 0 5px rgba(234,88,12,.35); } }
+  .prefs { margin-top: 26px; display: grid; gap: 10px; } .prefs .pf { display: flex; gap: 12px; align-items: baseline; padding: 12px 16px; border-radius: 14px; background: var(--surface); border: 1px solid var(--line); }
+  .prefs .pf b { flex: 1; font-weight: 500; } .prefs .pf small { color: var(--ink-3); white-space: nowrap; } .prefs .pf a { font-size: 12.5px; }
+  .prefs form { display: flex; gap: 8px; } .prefs form input { flex: 1; height: 38px; border-radius: 99px; border: 1px solid var(--line-strong); padding: 0 14px; }
+  @media (max-width: 1000px) { .ov { grid-template-columns: repeat(3, 1fr); } .how { grid-template-columns: 1fr 1fr; } }
   @media (max-width: 760px) { .how { grid-template-columns: 1fr; } .cd { grid-template-columns: 1fr; } .shot { border-right: 0; border-bottom: 1px solid var(--line); min-height: 120px; } .acts { margin-left: 0; } .ov { grid-template-columns: 1fr 1fr; } .bar { position: static; } .ev { grid-template-columns: 28px minmax(0, 1fr); } .ev .tm { grid-column: 2; } }
 </style>
 </head>
 <body>
 <main class="wrap">
   <header class="hero"><nav class="crumb" id="crumb">agent-page-feedback</nav>
-    <h1>修改意见与协作复盘 <span class="badge">团队内部</span></h1>
-    <p>团队成员在网站各个页面上的批注都汇总在这里。每条意见附带批注位置截图，以及谁提的、谁回复了、AI 有没有改、改了什么。这里也是项目复盘的整体记录：「时间线」按日期列出提出、讨论和处理的全过程。</p>
+    <h1>任务中心 <span class="badge">团队内部</span></h1>
+    <p>网站上的每一条意见都是一张任务卡：人负责提出和拍板，agent 负责分诊、出方案、修改和交付报告。所有讨论、决定和修改都记在卡片上，「时间线」可以复盘全过程。</p>
     <ol class="how">
-      <li><b>在页面上批注</b>打开任意页面，点左下角「批注」，再点要改的地方。会自动截一张位置图，也可以粘贴或添加更多图片。</li>
-      <li><b>在这里讨论</b>补充回复（可以带图）、标「待讨论」，或者合并重复的意见。</li>
-      <li><b>交给 agent，回来复盘</b>点「导出给 agent」发给 Claude / Codex。改完后 agent 写明改了什么，带 <span class="av sm ai" style="vertical-align:-6px">AI</span> 标记。</li>
+      <li><b>在页面上提出</b>打开任意页面，点左下角「批注」，再点要改的地方，自动附位置截图。</li>
+      <li><b>agent 分诊</b>明确的写清打算怎么改；不确定的出 A / B 方案，附预览链接。</li>
+      <li><b>负责人拍板</b>用管理员通行码登录的人点「可以做」或「选 A / B」，这就是 agent 的执行信号。</li>
+      <li><b>agent 交付</b>改完附交付报告：改了什么、为什么、改前 / 改后截图、回滚编号。</li>
+      <li><b>负责人验收</b>点「通过」完成；「再改」写明意见；「改回来」恢复原样。</li>
     </ol>
   </header>
   <div id="app"></div>
@@ -122,8 +145,10 @@
   // 接口地址：默认是本页所在目录的上一级（本页由服务器在 {PREFIX}client/feedback.html 提供）；也可以用 ?api= 指定
   const API = new URLSearchParams(location.search).get('api') || new URL('../', location.href).href, M = window.APFMedia;
   const KIND = { bug: '问题', suggest: '建议', copy: '文案', style: '样式', data: '内容有误' };
-  const STAT = { open: '待处理', doing: '处理中', question: '待讨论', done: '已改好', wontfix: '不改' };
-  const SCOL = { open: '#C2410C', doing: '#1D4ED8', question: '#7C3AED', done: '#15803D', wontfix: '#6B7280' };
+  const STAT = { open: '待处理', question: '待决定', approved: '可以做', doing: '处理中', review: '待验收', done: '已完成', wontfix: '不改' };
+  const SCOL = { open: '#C2410C', question: '#7C3AED', approved: '#0E7490', doing: '#1D4ED8', review: '#B45309', done: '#15803D', wontfix: '#6B7280' };
+  const DECIDE = { open: [['approve', '可以做'], ['wontfix', '不改']], question: [['approve', '按我的意见做'], ['wontfix', '不改']], approved: [['wontfix', '不改']], doing: [],
+    review: [['accept', '通过'], ['rework', '再改…'], ['revert', '改回来']], done: [['reopen', '重新打开']], wontfix: [['reopen', '重新打开']] };
   const LS = { get: k => { try { return localStorage.getItem('apf:' + k) || ''; } catch (e) { return ''; } }, set: (k, v) => { try { v ? localStorage.setItem('apf:' + k, v) : localStorage.removeItem('apf:' + k); } catch (e) {} } };
   if (!LS.get('cid')) LS.set('cid', Math.random().toString(36).slice(2) + Date.now().toString(36));
   const when = t => { const d = new Date(t * 1000); return (d.getMonth() + 1) + '-' + d.getDate() + ' ' + d.toTimeString().slice(0, 5); };
@@ -139,18 +164,20 @@
     if ((r.headers.get('content-type') || '').includes('markdown')) return r.text();
     const j = await r.json().catch(() => ({ error: '服务器没有响应（' + r.status + '）' })); if (!r.ok) throw Object.assign(new Error(j.error || '出错了'), { status: r.status }); return j; }
 
-  let ITEMS = [], role = '', VIEW = 'cards', F = { st: 'all', kind: '', who: '', page: '', q: '' };
+  let ITEMS = [], role = '', VIEW = 'cards', F = { st: 'all', kind: '', who: '', page: '', q: '' }, STATS = null, PREFS = [];
   const isOpen = it => it.status !== 'done' && it.status !== 'wontfix';
-  const doneAt = it => { const r = [...it.replies].reverse().find(x => x.kind === 'status' && /已改好|不改/.test(x.body)); return r && r.created; };
+  const doneAt = it => { const r = [...it.replies].reverse().find(x => (x.kind === 'decision' && x.meta && x.meta.action === 'accept') || (x.kind === 'status' && /已改好|已完成|不改/.test(x.body))); return r && r.created; };
 
   function gate(msg) {
-    $('#app').innerHTML = `<form class="gate"><b>输入团队口令</b><p style="margin:6px 0 0;color:var(--ink-3);font-size:13.5px">${msg || '批注只对团队成员开放。口令找项目负责人要。'}</p>
-      <label>团队口令</label><input type="password" id="gc" autocomplete="off"><label>你的姓名</label><input type="text" id="gn" maxlength="20" value="${esc(LS.get('name'))}">
+    $('#app').innerHTML = `<form class="gate"><b>输入通行码</b><p style="margin:6px 0 0;color:var(--ink-3);font-size:13.5px">${msg || '只对团队成员开放。负责人用管理员通行码登录，可以拍板和验收。'}</p>
+      <label>通行码</label><input type="password" id="gc" autocomplete="off"><label>你的姓名</label><input type="text" id="gn" maxlength="20" value="${esc(LS.get('name'))}">
       <div class="err" id="ge"></div><button class="btn pri" style="width:100%;height:40px">进入</button></form>`;
     $('.gate').onsubmit = async e => { e.preventDefault(); const c = $('#gc').value.trim(), n = $('#gn').value.trim(); if (!c || !n) { $('#ge').textContent = '口令和姓名都要填'; return; }
       LS.set('code', c); LS.set('name', n); try { await load(); } catch (er) { LS.set('code', ''); $('#ge').textContent = er.message; } };
   }
-  async function load() { const r = await api('items?all=1'); ITEMS = r.items; role = r.role; render(); }
+  async function load() { const [r, st, pf] = await Promise.all([api('items?all=1'), api('stats').catch(() => null), api('prefs').catch(() => ({ prefs: [] }))]);
+    ITEMS = r.items; role = r.role; STATS = st; PREFS = pf.prefs || []; render();
+    const m = location.hash.match(/^#item-(\d+)$/); if (m) setTimeout(() => { const c = document.querySelector(`.cd[data-id="${m[1]}"]`); if (c) { c.scrollIntoView({ block: 'center' }); c.classList.add('flash'); } }, 200); }
 
   // 每个人：提出几条、回复几条；AI：处理几条
   function people() { const P = {};
@@ -163,17 +190,22 @@
     const ds = fixed.map(it => doneAt(it) && doneAt(it) - it.created).filter(x => x > 0), avg = ds.length ? ds.reduce((a, b) => a + b, 0) / ds.length : 0;
     const aiN = its.filter(it => it.replies.some(r => isAI(r.author))).length, shots = its.filter(it => (it.files || []).some(f => f.kind === 'shot')).length;
     const pages = [...new Map(its.map(it => [it.page, it.title || it.page])).entries()], PP = people();
-    $('#app').innerHTML = `<div class="ov">
-        <div><b>${n}</b><span>条批注 · ${pages.length} 个页面</span></div>
-        <div><b style="color:#15803D">${fixed.length}</b><span>已改好${n ? ' · ' + Math.round(fixed.length / n * 100) + '%' : ''}</span></div>
-        <div><b style="color:#C2410C">${its.filter(isOpen).length}</b><span>未完成（待处理 / 处理中 / 待讨论）</span></div>
-        <div><b>${avg ? dur(avg) : '—'}</b><span>从提出到改好的平均用时</span></div>
-        <div><b style="color:var(--ai)">${aiN}</b><span>条由 AI 处理或回复</span></div>
-        <div><b>${shots}</b><span>条带位置截图</span></div></div>
+    const mineQ = its.filter(it => it.status === 'question'), mineR = its.filter(it => it.status === 'review'), S = STATS || {};
+    $('#app').innerHTML = `${role === 'admin' ? `<section class="todo"><h2>我的待办 · ${mineQ.length + mineR.length} 条</h2><p>你是负责人（管理员通行码）。你在这里点的「可以做 / 选方案 / 通过 / 再改」，就是 agent 的执行信号。</p>
+        ${mineR.length ? `<h3 class="todo-sub">待你验收 · ${mineR.length}</h3><div class="cards">${mineR.map(card).join('')}</div>` : ''}
+        ${mineQ.length ? `<h3 class="todo-sub">待你决定 · ${mineQ.length}</h3><div class="cards">${mineQ.map(card).join('')}</div>` : ''}
+        ${mineQ.length + mineR.length ? '' : '<p style="margin:0;color:#15803D">现在没有等你处理的任务。</p>'}</section>` : ''}
+      <div class="ov">
+        <div><b>${n}</b><span>条任务 · ${pages.length} 个页面</span></div>
+        <div><b style="color:#15803D">${fixed.length}</b><span>已完成${n ? ' · ' + Math.round(fixed.length / n * 100) + '%' : ''}</span></div>
+        <div><b style="color:#B45309">${cnt('review') + cnt('question')}</b><span>等负责人（待验收 ${cnt('review')} · 待决定 ${cnt('question')}）</span></div>
+        <div><b style="color:#0E7490">${cnt('approved') + cnt('doing') + cnt('open')}</b><span>agent 手上（可以做 / 处理中 / 待处理）</span></div>
+        <div><b>${S.first_pass == null ? '—' : Math.round(S.first_pass * 100) + '%'}</b><span>一次通过率（验收时没有「再改」）</span></div>
+        <div><b>${S.avg_hours != null ? dur(S.avg_hours * 3600) : avg ? dur(avg) : '—'}</b><span>从提出到完成的平均用时</span></div></div>
       <div class="stack">${Object.keys(STAT).map(k => cnt(k) ? `<i style="width:${cnt(k) / n * 100}%;background:${SCOL[k]}" title="${STAT[k]} ${cnt(k)}"></i>` : '').join('')}</div>
       <div class="legend">${Object.entries(STAT).map(([k, v]) => `<span><i style="background:${SCOL[k]}"></i>${v} ${cnt(k)}</span>`).join('')}</div>
       <div class="people">${PP.map(([nm, p]) => `<button class="pp" data-who="${esc(nm)}" aria-pressed="${F.who === nm}">${av(nm)}<span>${esc(nm)}</span><small>${isAI(nm) ? `处理 ${p.handled.size} 条` : `提出 ${p.raised}${p.replies ? ' · 回复 ' + p.replies : ''}`}</small></button>`).join('')}</div>
-      <div class="bar"><span class="seg"><button data-v="cards" aria-pressed="${VIEW === 'cards'}">卡片</button><button data-v="tl" aria-pressed="${VIEW === 'tl'}">时间线 · 复盘</button></span>
+      <div class="bar"><span class="seg"><button data-v="cards" aria-pressed="${VIEW === 'cards'}">卡片</button><button data-v="tl" aria-pressed="${VIEW === 'tl'}">时间线 · 复盘</button><button data-v="pf" aria-pressed="${VIEW === 'pf'}">偏好手册 ${PREFS.length}</button></span>
         <select id="fs"><option value="all">全部状态</option><option value="todo"${F.st === 'todo' ? ' selected' : ''}>未完成</option>${Object.entries(STAT).map(([k, v]) => `<option value="${k}"${F.st === k ? ' selected' : ''}>${v}</option>`).join('')}</select>
         <select id="fk"><option value="">全部类型</option>${Object.entries(KIND).map(([k, v]) => `<option value="${k}"${F.kind === k ? ' selected' : ''}>${v}</option>`).join('')}</select>
         <select id="fp"><option value="">全部页面</option>${pages.map(([p, t]) => `<option value="${esc(p)}"${F.page === p ? ' selected' : ''}>${esc(t)}</option>`).join('')}</select>
@@ -181,11 +213,12 @@
         <span class="acts"><button class="btn" id="rf">刷新</button><button class="btn" id="exr">导出复盘报告</button><button class="btn pri" id="ex">导出给 agent</button></span></div>
       <div id="list"></div>
       <section class="agent"><h2>agent 怎么读取和回写</h2>
-        <p>口令放在请求头 <code>X-FB-Code</code> 里（找负责人要，不要写进代码仓库或共享文档）。读取未完成的修改清单（含截图地址）：</p>
-        <pre>curl -s -H "X-FB-Code: $FB_CODE" "${esc(new URL(API, location.href).href)}export.md"</pre>
-        <p>改完一条，把它标为「已改好」并写明改了什么（署名用 Claude / Codex，页面上会显示 AI 标记）：</p>
+        <p>通行码放在请求头 <code>X-FB-Code</code> 里（找负责人要，不要写进代码仓库或共享文档）。完整规则见仓库里的 AGENTS.md。读取工作清单：</p>
+        <pre>curl -s -H "X-FB-Code: $FB_CODE" "${esc(new URL(API, location.href).href)}export.md"     # 或 queue.json</pre>
+        <p>只做「可以执行」里的任务；不确定的出方案（<code>items/编号/propose</code>）；改完交付报告，状态变成「待验收」，等负责人点「通过」：</p>
         <pre>curl -s -X POST -H "X-FB-Code: $FB_CODE" -H "X-FB-Name: Claude" -H "Content-Type: application/json" \\
-  -d '{"status":"done","note":"改了什么"}' "${esc(new URL(API, location.href).href)}items/编号/status"</pre>
+  -d '{"summary":"改了什么","why":"为什么","changes":["…"],"links":[{"name":"页面","url":"…"}],"rollback":"回滚编号","before":"data:image/jpeg;base64,…","after":"data:image/jpeg;base64,…"}' \\
+  "${esc(new URL(API, location.href).href)}items/编号/report"</pre>
         <p>截图读取：<code>files/附件编号</code>（同样带口令）；补传截图：<code>POST items/编号/shot {"shot":"data:image/jpeg;base64,…"}</code>。</p></section>`;
     $$('.seg [data-v]').forEach(b => b.onclick = () => { VIEW = b.dataset.v; render(); });
     $$('.pp').forEach(b => b.onclick = () => { F.who = F.who === b.dataset.who ? '' : b.dataset.who; render(); });
@@ -196,11 +229,15 @@
   }
   const pass = it => { const q = F.q.toLowerCase();
     return (F.st === 'all' || (F.st === 'todo' ? isOpen(it) : it.status === F.st)) && (!F.kind || it.kind === F.kind) && (!F.page || it.page === F.page)
-      && (!F.who || it.author === F.who || it.replies.some(r => r.author === F.who)) && (!q || (it.body + ' ' + (it.quote || '') + ' ' + it.replies.map(r => r.body).join(' ')).toLowerCase().includes(q)); };
+      && VIEW !== 'pf' && (!F.who || it.author === F.who || it.replies.some(r => r.author === F.who)) && (!q || (it.body + ' ' + (it.quote || '') + ' ' + it.replies.map(r => r.body).join(' ')).toLowerCase().includes(q)); };
   const href = it => { const u = it.url || it.page; return u + (u.includes('?') ? '&' : '?') + 'fbid=' + it.id; };
-  function renderList() { const rows = ITEMS.filter(pass), box = $('#list');
-    if (!rows.length) { box.innerHTML = `<div class="empty">${ITEMS.length ? '没有符合筛选条件的批注。' : '还没有批注。打开任意页面，点左下角「批注」开始。'}</div>`; return; }
-    box.innerHTML = VIEW === 'tl' ? timeline(rows) : cards(rows); M && M.hydrate(box); }
+  function renderList() { const rows = VIEW === 'pf' ? [] : ITEMS.filter(pass), box = $('#list');
+    if (!rows.length && VIEW !== 'pf') { box.innerHTML = `<div class="empty">${ITEMS.length ? '没有符合筛选条件的批注。' : '还没有批注。打开任意页面，点左下角「批注」开始。'}</div>`; return; }
+    box.innerHTML = VIEW === 'pf' ? prefsView() : VIEW === 'tl' ? timeline(rows) : cards(rows); M && M.hydrate(box); M && M.hydrate($('.todo') || document.createElement('i')); }
+  // 负责人偏好手册：从每次「通过 / 再改 / 选方案」里总结出来的标准，agent 动手前先读
+  function prefsView() { return `<section class="prefs"><p style="margin:0;color:var(--ink-2)">agent 每次动手前先读这份手册。它由 agent 根据你的决定总结，也可以直接添加；不再适用的可以停用。</p>
+      <form id="pfa"><input placeholder="添加一条标准，例如：文案要短，不要星号和备注" maxlength="300"><button class="btn pri">添加</button></form>
+      ${PREFS.length ? PREFS.map(p => `<div class="pf"><b>${esc(p.text)}</b>${p.item ? `<a href="#item-${p.item}" data-jump="${p.item}">来自 #${p.item}</a>` : ''}<small>${esc(p.author || '')} · ${when(p.created)}</small>${role === 'admin' ? `<button class="btn sm" data-pfoff="${p.id}">停用</button>` : ''}</div>`).join('') : '<div class="empty">还没有。agent 会在你验收、选方案时把你的标准记下来。</div>'}</section>`; }
 
   // ---------- 卡片墙：按页面分组，左侧位置截图，右侧意见与对话 ----------
   function cards(rows) { const by = new Map(); rows.forEach(it => { if (!by.has(it.page)) by.set(it.page, []); by.get(it.page).push(it); });
@@ -208,28 +245,40 @@
   function card(it) { const shot = (it.files || []).find(f => f.kind === 'shot'), imgs = (it.files || []).filter(f => f.kind !== 'shot');
     return `<article class="cd ${it.status === 'done' ? 'done' : ''}" data-id="${it.id}">
       <div class="shot">${shot ? `<img data-fid="${shot.id}" alt="#${it.id} 批注位置截图"><span class="lb">批注位置</span>` : `<span>没有位置截图<br><a class="addshot" href="${esc(href(it))}" target="_blank">到页面上看位置 ↗</a></span>`}</div>
-      <div class="cb"><div class="ch">${av(it.author)}<span class="nm">${esc(it.author)}</span><span class="tm">${when(it.created)} · ${esc(it.device || '桌面')}</span>
+      <div class="cb"><div class="ch">${av(it.author)}<span class="nm">${esc(it.author)}</span>${it.arole === 'admin' ? '<span class="owner">负责人</span>' : ''}<span class="tm">${when(it.created)} · ${esc(it.device || '桌面')}</span>
         <a class="id" href="${esc(href(it))}" target="_blank" title="到页面上定位">#${it.id} ↗</a><span class="tag${it.kind === 'bug' ? ' hi' : ''}">${KIND[it.kind] || ''}</span>${it.priority === 'high' ? '<span class="tag hi">优先级高</span>' : it.priority === 'low' ? '<span class="tag">优先级低</span>' : ''}
-        <select class="st" style="color:${SCOL[it.status]};border-color:${SCOL[it.status]}">${Object.entries(STAT).map(([k, v]) => `<option value="${k}"${k === it.status ? ' selected' : ''}>${v}</option>`).join('')}</select></div>
+        <span class="stag" style="background:${SCOL[it.status] || '#6B7280'}">${STAT[it.status] || it.status}</span></div>
         ${it.quote ? `<p class="q">${esc(it.quote)}</p>` : ''}<p class="body">${esc(it.body)}</p>
         ${imgs.length ? `<div class="imgs">${imgs.map(f => `<img data-fid="${f.id}" alt="附图">`).join('')}</div>` : ''}
-        ${it.replies.length ? `<div class="thread">${it.replies.map(msg).join('')}</div>` : ''}
+        ${it.replies.length ? `<div class="thread">${it.replies.map(r => msg(r, it)).join('')}</div>` : ''}
+        ${role === 'admin' && (DECIDE[it.status] || []).length ? `<div class="dec"><span>${it.status === 'review' ? '验收' : it.status === 'question' ? '请决定' : '负责人'}</span>${DECIDE[it.status].map(([a, nm], i) => `<button data-dec="${a}" class="${i === 0 && a !== 'wontfix' && a !== 'reopen' ? 'go' : ''}">${nm}</button>`).join('')}</div>` : ''}
         <div class="ra"><input type="text" placeholder="回复…（可粘贴图片）" maxlength="1000"><label>图片<input type="file" accept="image/png,image/jpeg,image/webp,image/gif" multiple></label><button class="btn sm rp">回复</button>${it.mine || role === 'admin' ? '<button class="del">删除</button>' : ''}</div>
         <div class="pend"></div></div></article>`; }
-  function msg(r) { const ai = isAI(r.author), sys = r.kind === 'status', m = sys && r.body.match(/^把状态改为「(.+?)」：?([\s\S]*)$/);
-    const text = m ? (m[1] === '已改好' ? '<span class="ok-tag">已改好</span>' : `<b>改为「${esc(m[1])}」</b> `) + esc(m[2]) : esc(r.body);
-    return `<div class="msg ${ai ? 'ai' : ''} ${sys ? 'sys' : ''}">${av(r.author, 1)}<div class="bub"><small><b>${esc(r.author)}</b>${ai ? ' · AI' : ''} · ${when(r.created)}</small>${text}${(r.files || []).length ? `<div class="imgs" style="margin-top:6px">${r.files.map(f => `<img data-fid="${f.id}" alt="附图">`).join('')}</div>` : ''}</div></div>`; }
+  function msg(r, it) { const ai = isAI(r.author), sys = r.kind === 'status', m = sys && r.body.match(/^把状态改为「(.+?)」：?([\s\S]*)$/), meta = r.meta || {};
+    const imgs = fs => fs.length ? `<div class="imgs" style="margin-top:6px">${fs.map(f => `<img data-fid="${f.id}" alt="附图">`).join('')}</div>` : '';
+    let text;
+    if (r.kind === 'proposal') text = `<div class="rbox"><h4>方案 · 请负责人选择</h4><p>${esc(r.body)}</p>${(meta.options || []).map(o => `<div class="opt"><b>方案 ${esc(o.key)}</b><span>${esc(o.title)}${o.desc ? '：' + esc(o.desc) : ''}${o.link ? ` <a href="${esc(o.link)}" target="_blank" rel="noopener">预览 ↗</a>` : ''}</span>${role === 'admin' && it && it.status === 'question' ? `<button class="btn sm pri" data-dec="choose" data-opt="${esc(o.key)}">选 ${esc(o.key)}</button>` : ''}</div>`).join('')}${imgs(r.files || [])}</div>`;
+    else if (r.kind === 'report') { const fb = k => (r.files || []).find(f => f.kind === k), b = fb('before'), a = fb('after');
+      text = `<div class="rbox"><h4>交付报告${it && it.status === 'review' ? ' · 待负责人验收' : ''}</h4><p>${esc(r.body)}</p>${meta.why ? `<p class="why">原因：${esc(meta.why)}</p>` : ''}${(meta.changes || []).length ? `<ul>${meta.changes.map(c => `<li>${esc(c)}</li>`).join('')}</ul>` : ''}
+        ${b || a ? `<div class="ba">${b ? `<figure><figcaption>改前</figcaption><img data-fid="${b.id}" alt="改前"></figure>` : '<span></span>'}${a ? `<figure><figcaption>改后</figcaption><img data-fid="${a.id}" alt="改后"></figure>` : ''}</div>` : ''}${imgs((r.files || []).filter(f => f.kind === 'image'))}
+        ${(meta.links || []).length ? `<p>${meta.links.map(l => `<a href="${esc(l.url)}" target="_blank" rel="noopener">${esc(l.name || '查看')} ↗</a>`).join(' · ')}</p>` : ''}${meta.rollback ? `<span class="rb">回滚编号：${esc(meta.rollback)}</span>` : ''}</div>`; }
+    else if (r.kind === 'decision') text = `<span class="dtag">决定</span>${esc(r.body)}`;
+    else text = (m ? (/已改好|已完成/.test(m[1]) ? `<span class="ok-tag">${esc(m[1])}</span>` : `<b>改为「${esc(m[1])}」</b> `) + esc(m[2]) : esc(r.body)) + imgs(r.files || []);
+    return `<div class="msg ${ai ? 'ai' : ''} ${sys ? 'sys' : ''} ${r.kind === 'decision' ? 'decision' : ''}">${av(r.author, 1)}<div class="bub"><small><b>${esc(r.author)}</b>${r.role === 'admin' ? ' · 负责人' : ''}${ai ? ' · AI' : ''} · ${when(r.created)}</small>${text}</div></div>`; }
 
   // ---------- 时间线 · 复盘：提出、回复、处理，按日期 ----------
   function timeline(rows) { const ev = [];
-    rows.forEach(it => { ev.push({ t: it.created, who: it.author, it, type: 'new' }); it.replies.forEach(r => ev.push({ t: r.created, who: r.author, it, r, type: r.kind === 'status' ? 'status' : 'reply' })); });
+    rows.forEach(it => { ev.push({ t: it.created, who: it.author, it, type: 'new' }); it.replies.forEach(r => ev.push({ t: r.created, who: r.author, it, r, type: r.kind === 'status' ? 'status' : r.kind === 'decision' ? 'decision' : 'reply' })); });
     ev.sort((a, b) => a.t - b.t); const by = new Map(); ev.forEach(e => { const d = dayOf(e.t); if (!by.has(d)) by.set(d, []); by.get(d).push(e); });
-    const DOT = { new: '#F59E0B', reply: '#94A3B8', status: '#15803D' };
-    return `<div class="tl">${[...by.entries()].map(([d, es]) => { const nNew = es.filter(e => e.type === 'new').length, nFix = es.filter(e => e.type === 'status' && /已改好/.test(e.r.body)).length;
-      return `<div class="day"><h3>${d} <small>新提出 ${nNew} 条 · 改好 ${nFix} 条 · 共 ${es.length} 个动作</small></h3><div class="evs">${es.map(e => { const it = e.it, link = `<a href="${esc(href(it))}" target="_blank">#${it.id} ${esc((it.title || it.page).slice(0, 20))}</a>`;
+    const DOT = { new: '#F59E0B', reply: '#94A3B8', status: '#15803D', decision: '#DC2626' };
+    return `<div class="tl">${[...by.entries()].map(([d, es]) => { const nNew = es.filter(e => e.type === 'new').length, nFix = es.filter(e => (e.type === 'status' && /已改好|已完成/.test(e.r.body)) || (e.r && e.r.kind === 'decision' && e.r.meta && e.r.meta.action === 'accept')).length;
+      return `<div class="day"><h3>${d} <small>新提出 ${nNew} 条 · 完成 ${nFix} 条 · 共 ${es.length} 个动作</small></h3><div class="evs">${es.map(e => { const it = e.it, link = `<a href="${esc(href(it))}" target="_blank">#${it.id} ${esc((it.title || it.page).slice(0, 20))}</a>`;
         const shot = e.type === 'new' && (it.files || []).find(f => f.kind === 'shot');
         const t = e.type === 'new' ? `<b>${esc(e.who)}</b> 提出 ${link}<p>${esc(it.body)}</p>${shot ? `<img data-fid="${shot.id}" alt="#${it.id} 批注位置截图">` : ''}`
-          : e.type === 'status' ? `<b>${esc(e.who)}</b> ${/已改好/.test(e.r.body) ? '改好了' : '更新了'} ${link}<p>${esc(e.r.body.replace(/^把状态改为「(.+?)」：?/, '状态：$1。'))}</p>`
+          : e.r && e.r.kind === 'decision' ? `<b>${esc(e.who)}</b>（负责人）决定 ${link}<p>${esc(e.r.body)}</p>`
+          : e.r && e.r.kind === 'report' ? `<b>${esc(e.who)}</b> 交付了 ${link}<p>${esc(e.r.body)}</p>${(e.r.files || []).filter(f => f.kind === 'after').map(f => `<img data-fid="${f.id}" alt="改后">`).join('')}`
+          : e.r && e.r.kind === 'proposal' ? `<b>${esc(e.who)}</b> 给出方案 ${link}<p>${esc(e.r.body)}</p>`
+          : e.type === 'status' ? `<b>${esc(e.who)}</b> ${/已改好|已完成/.test(e.r.body) ? '完成了' : '更新了'} ${link}<p>${esc(e.r.body.replace(/^把状态改为「(.+?)」：?/, '状态：$1。'))}</p>`
           : `<b>${esc(e.who)}</b> 回复 ${link}<p>${esc(e.r.body)}</p>${(e.r.files || []).map(f => `<img data-fid="${f.id}" alt="附图">`).join('')}`;
         return `<div class="ev ${isAI(e.who) ? 'ai' : ''}" style="--dot:${isAI(e.who) ? 'var(--ai)' : DOT[e.type]}">${av(e.who)}<div class="t">${t}</div><span class="tm">${new Date(e.t * 1000).toTimeString().slice(0, 5)}</span></div>`; }).join('')}</div></div>`; }).join('')}</div>`; }
 
@@ -239,22 +288,31 @@
   const addPend = async (cd, files) => { const id = +cd.dataset.id, a = PEND.get(id) || []; for (const f of files) { try { a.push(await M.readImage(f)); } catch (e) { alert(e.message); } } PEND.set(id, a); cd.querySelector('.pend').textContent = a.length ? `已添加 ${a.length} 张图片，点「回复」一起发送` : ''; };
   document.addEventListener('change', async e => {
     if (e.target.matches('.ra label input')) { addPend(e.target.closest('.cd'), [...e.target.files]); e.target.value = ''; return; }
-    const s = e.target.closest('.cd .st'); if (!s) return; const id = +s.closest('.cd').dataset.id;
-    const note = s.value === 'done' || s.value === 'wontfix' ? (prompt('补一句说明（可不填）', '') || '') : '';
-    try { upd((await api(`items/${id}/status`, { status: s.value, note })).item); } catch (er) { alert(er.message); } });
+  });
   document.addEventListener('paste', e => { const inp = e.target.closest && e.target.closest('.ra input[type=text]'); if (!inp) return; const fs = [...(e.clipboardData || {}).files || []].filter(f => f.type.startsWith('image/')); if (fs.length) { e.preventDefault(); addPend(inp.closest('.cd'), fs); } });
   document.addEventListener('click', async e => {
     const img = e.target.closest('img[data-fid]'); if (img && img.src) { M.lightbox(img.src, img.alt); return; }
+    const off = e.target.closest('[data-pfoff]'); if (off) { if (!confirm('停用这条标准？')) return; try { await api(`prefs/${off.dataset.pfoff}/off`, {}); PREFS = PREFS.filter(p => p.id !== +off.dataset.pfoff); render(); } catch (er) { alert(er.message); } return; }
+    const jp = e.target.closest('[data-jump]'); if (jp) { e.preventDefault(); VIEW = 'cards'; F = { st: 'all', kind: '', who: '', page: '', q: '' }; render(); const c = document.querySelector(`#list .cd[data-id="${jp.dataset.jump}"]`); if (c) { c.scrollIntoView({ block: 'center' }); c.classList.add('flash'); } return; }
     const cd = e.target.closest('.cd'); if (!cd) return; const id = +cd.dataset.id;
+    const dv = e.target.closest('[data-dec]');
+    if (dv) { const a = dv.dataset.dec, it = ITEMS.find(x => x.id === id), body = { action: a, option: dv.dataset.opt || '' };
+      if (a === 'rework') { const n2 = prompt('要怎么再改？（会作为下一轮修改的依据）', ''); if (!n2 || !n2.trim()) return; body.note = n2.trim(); }
+      else if (a === 'revert') { if (!confirm('让 agent 把 #' + id + ' 的修改改回去？')) return; body.note = prompt('补一句原因（可不填）', '') || ''; }
+      else if (a === 'wontfix') body.note = prompt('不改的原因（可不填）', '') || '';
+      else if (a === 'approve' && it && it.status === 'question') body.note = prompt('按你的意见做：补充说明（可不填）', '') || '';
+      dv.disabled = true; try { upd((await api(`items/${id}/decide`, body)).item); STATS = await api('stats').catch(() => STATS); const y = scrollY; render(); scrollTo(0, y); } catch (er) { alert(er.message); dv.disabled = false; } return; }
     if (e.target.closest('.rp')) { const inp = cd.querySelector('.ra input[type=text]'), pend = PEND.get(id) || []; if (!inp.value.trim() && !pend.length) return; e.target.disabled = true;
       try { upd((await api(`items/${id}/reply`, { body: inp.value.trim(), images: pend })).item); PEND.delete(id); } catch (er) { alert(er.message); e.target.disabled = false; } }
     if (e.target.closest('.del')) { if (!confirm('删除批注 #' + id + '？')) return; try { await api(`items/${id}/delete`, {}); ITEMS = ITEMS.filter(x => x.id !== id); render(); } catch (er) { alert(er.message); } } });
   document.addEventListener('keydown', e => { if (e.key === 'Enter' && e.target.matches('.ra input[type=text]')) e.target.closest('.cd').querySelector('.rp').click(); });
+  document.addEventListener('submit', async e => { if (e.target.id !== 'pfa') return; e.preventDefault(); const inp = e.target.querySelector('input'), t = inp.value.trim(); if (!t) return;
+    try { PREFS.push((await api('prefs', { text: t })).pref); render(); } catch (er) { alert(er.message); } });
 
   // ---------- 导出 ----------
   const show = (title, desc, md, n) => { $('#dlgT').textContent = title; $('#dlgP').textContent = desc; $('#md').value = md; $('#mdn').textContent = n; $('#dlg').showModal(); };
-  async function exportMd() { const st = F.st === 'todo' || F.st === 'all' ? 'open,doing,question' : F.st;
-    try { const md = await api('export.md?status=' + st); show('给 agent 的修改清单', '按页面分组、高优先级在前，带定位信息、截图地址和讨论记录。复制后直接发给 agent 即可。', md, (md.match(/^### #/gm) || []).length + ' 条'); } catch (er) { alert(er.message); } }
+  async function exportMd() { const st = F.st === 'todo' || F.st === 'all' ? 'approved,doing,open,question,review' : F.st;
+    try { const md = await api('export.md?status=' + st); show('给 agent 的工作清单', '先是负责人偏好手册，然后分「可以执行 / 待分诊 / 等负责人」三组，带定位、截图地址、负责人信号和讨论记录。', md, (md.match(/^### #/gm) || []).length + ' 条'); } catch (er) { alert(er.message); } }
   function exportReview() { const its = ITEMS.slice().sort((a, b) => a.id - b.id), PP = people(), fixed = its.filter(it => it.status === 'done');
     const out = [`# 网站协作复盘（${new Date().toLocaleString('zh-CN')}）`, '', `- 批注 ${its.length} 条，涉及 ${new Set(its.map(i => i.page)).size} 个页面；已改好 ${fixed.length} 条，未完成 ${its.filter(isOpen).length} 条`,
       `- 参与者：${PP.map(([n, p]) => isAI(n) ? `${n}（AI，处理 ${p.handled.size} 条）` : `${n}（提出 ${p.raised} 条${p.replies ? '，回复 ' + p.replies + ' 条' : ''}）`).join('；')}`, ''];
