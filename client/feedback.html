@@ -22,6 +22,11 @@
   .how li { background: var(--surface); border: 1px solid var(--line); border-radius: 16px; padding: 14px 16px 14px 52px; position: relative; font-size: 13.5px; color: var(--ink-2); line-height: 1.7; counter-increment: s; }
   .how li::before { content: counter(s); position: absolute; left: 16px; top: 14px; width: 24px; height: 24px; border-radius: 50%; background: #1f2430; color: #fff; display: grid; place-items: center; font-size: 12.5px; font-weight: 600; }
   .how b { color: var(--ink); display: block; }
+  .whos { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 12px; } .who { display: inline-flex; align-items: center; gap: 6px; height: 34px; padding: 0 12px 0 6px; border-radius: 99px; border: 1px solid var(--line); background: var(--surface); cursor: pointer; font-size: 13.5px; }
+  .who:first-child { padding-left: 12px; } .who small { color: var(--ink-3); font-size: 12px; } .who[aria-pressed="true"] { border-color: #1f2430; background: #1f2430; color: #fff; } .who[aria-pressed="true"] small { color: #cbd2e1; }
+  .bc .last { grid-column: 1 / -1; font-size: 12px; color: var(--ink-2); background: var(--sunken); border-radius: 8px; padding: 4px 8px; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; word-break: break-word; }
+  .bc .last b { color: var(--ink); font-weight: 600; } .bc .sig { grid-column: 1 / -1; font-size: 12px; color: #9A3412; }
+  .rows .row > h2 .st { font-size: 12.5px; font-weight: 400; color: var(--ink-2); }
   .lk { border: 0; background: none; color: var(--link); padding: 0; cursor: pointer; font-size: inherit; }
   /* 看板 */
   .board { display: flex; gap: 12px; overflow-x: auto; padding: 4px 2px 12px; align-items: flex-start; margin-top: 14px; }
@@ -240,7 +245,6 @@
         ${mineR.length ? `<h3 class="todo-sub">待你验收 · ${mineR.length}</h3><div class="cards">${mineR.map(card).join('')}</div>` : ''}
         ${mineQ.length ? `<h3 class="todo-sub">待你决定 · ${mineQ.length}</h3><div class="cards">${mineQ.map(card).join('')}</div>` : ''}
         ${mineQ.length + mineR.length ? '' : '<p style="margin:0;color:#15803D">现在没有等你处理的任务。</p>'}</section>` : ''}
-      ${VIEW === 'board' || VIEW === 'rows' ? `<p class="mini"><b>${n}</b> 条 · 已完成 <b>${fixed.length}</b> · 等负责人 <b>${cnt('review') + cnt('question')}</b> · agent 手上 <b>${cnt('approved') + cnt('doing') + cnt('open')}</b>${S.first_pass == null ? '' : ` · 一次通过率 <b>${Math.round(S.first_pass * 100)}%</b>`}</p>` : `
       <div class="ov">
         <div><b>${n}</b><span>条任务 · ${pages.length} 个页面</span></div>
         <div><b style="color:#15803D">${fixed.length}</b><span>已完成${n ? ' · ' + Math.round(fixed.length / n * 100) + '%' : ''}</span></div>
@@ -250,7 +254,7 @@
         <div><b>${S.avg_hours != null ? dur(S.avg_hours * 3600) : avg ? dur(avg) : '—'}</b><span>从提出到完成的平均用时</span></div></div>
       <div class="stack">${Object.keys(STAT).map(k => cnt(k) ? `<i style="width:${cnt(k) / n * 100}%;background:${SCOL[k]}" title="${STAT[k]} ${cnt(k)}"></i>` : '').join('')}</div>
       <div class="legend">${Object.entries(STAT).map(([k, v]) => `<span><i style="background:${SCOL[k]}"></i>${v} ${cnt(k)}</span>`).join('')}</div>
-      <div class="people">${PP.map(([nm, p]) => `<button class="pp" data-who="${esc(nm)}" aria-pressed="${F.who === nm}">${av(nm)}<span>${esc(nm)}</span><small>${isAI(nm) ? `处理 ${p.handled.size} 条` : `提出 ${p.raised}${p.replies ? ' · 回复 ' + p.replies : ''}`}</small></button>`).join('')}</div>`}
+      <div class="people">${PP.map(([nm, p]) => `<button class="pp" data-who="${esc(nm)}" aria-pressed="${F.who === nm}">${av(nm)}<span>${esc(nm)}</span><small>${isAI(nm) ? `处理 ${p.handled.size} 条` : `提出 ${p.raised}${p.replies ? ' · 回复 ' + p.replies : ''}`}</small></button>`).join('')}</div>
       <div class="bar"><span class="seg"><button data-v="board" aria-pressed="${VIEW === 'board'}">看板</button><button data-v="rows" aria-pressed="${VIEW === 'rows'}">按负责方</button><button data-v="cards" aria-pressed="${VIEW === 'cards'}">列表</button><button data-v="tl" aria-pressed="${VIEW === 'tl'}">时间线 · 复盘</button><button data-v="pf" aria-pressed="${VIEW === 'pf'}">偏好手册 ${PREFS.length}</button></span>
         <select id="fs"><option value="all">全部状态</option><option value="todo"${F.st === 'todo' ? ' selected' : ''}>未完成</option>${Object.entries(STAT).map(([k, v]) => `<option value="${k}"${F.st === k ? ' selected' : ''}>${v}</option>`).join('')}</select>
         <select id="fk"><option value="">全部类型</option>${Object.entries(KIND).map(([k, v]) => `<option value="${k}"${F.kind === k ? ' selected' : ''}>${v}</option>`).join('')}</select>
@@ -258,6 +262,8 @@
         <select id="fa"><option value="">全部负责方</option><option value="-"${F.asg === '-' ? ' selected' : ''}>没有负责方</option>${asgs.map(a => `<option value="${esc(a)}"${F.asg === a ? ' selected' : ''}>${esc(a)}</option>`).join('')}</select>
         <input type="search" id="fq" placeholder="搜意见、回复" value="${esc(F.q)}">
         <span class="acts"><button class="btn pri" id="nr">新建需求</button><button class="btn" id="rf">刷新</button><button class="btn" id="exc">导出打回记录</button><button class="btn" id="exr">导出复盘报告</button><button class="btn pri" id="ex">导出给 agent</button></span></div>
+      <div class="whos">${[['', '全部', its.filter(isOpen).length], ...asgs.map(a => [a, a, its.filter(it => it.assignee === a && isOpen(it)).length]), ['-', '没有负责方', its.filter(it => !it.assignee && isOpen(it)).length]].map(([v, t, k]) =>
+        `<button class="who" data-asgf="${esc(v)}" aria-pressed="${F.asg === v}">${v && v !== '-' ? av(v, 1) : ''}<span>${esc(t)}</span><small>${k} 未完成</small></button>`).join('')}</div>
       <div id="list"></div>`;
     $$('.seg [data-v]').forEach(b => b.onclick = () => { VIEW = b.dataset.v; LS.set('view', VIEW); render(); });
     $$('.pp').forEach(b => b.onclick = () => { F.who = F.who === b.dataset.who ? '' : b.dataset.who; render(); });
@@ -287,10 +293,14 @@
     ['doing', '处理中', '已认领，正在改'], ['review', '待你验收', '已交付，看改前改后'], ['closed', '已结束', '已完成和不改，最近的在前']];
   const laneOf = it => it.status === 'done' || it.status === 'wontfix' ? 'closed' : it.status;
   let OPEN = 0, LANE_CUR = '', SHOW_CLOSED = 12;
-  const titleOf = it => (it.page === REQ && it.title ? it.title + '：' : '') + String(it.body || '').replace(/^\s*【交给[^】]*】\s*/, '');
+  const titleOf = it => { const b = String(it.body || '').replace(/^\s*【交给[^】]*】\s*/, ''), t = it.page === REQ && it.title ? it.title : '';
+    return t && !b.startsWith(t) ? t + '：' + b : b; };
   function bcard(it) { const shot = (it.files || []).find(f => f.kind === 'shot'), n = it.replies.filter(r => r.kind !== 'status').length;
     return `<div class="bc${it.id === OPEN ? ' sel' : ''}" data-open="${it.id}" draggable="${matchMedia('(pointer:fine)').matches}">
       <span class="t">${esc(titleOf(it).slice(0, 160))}</span>${shot ? `<img class="th" data-fid="${shot.id}" alt="">` : ''}
+      ${it.signal && ['approved', 'doing'].includes(it.status) ? `<span class="sig">负责人：${esc(({ approve: '可以做', choose: '选方案', rework: '再改', revert: '改回来' })[it.signal] || it.signal)}${it.signal_note ? ' · ' + esc(it.signal_note.slice(0, 40)) : ''}</span>` : ''}
+      ${(() => { const l = [...it.replies].reverse().find(r => r.kind !== 'status' || /处理中/.test(r.body)); if (!l) return ''; const k = ({ report: '交付', proposal: '方案', check: '核对', decision: '决定' })[l.kind];
+        return `<span class="last"><b>${esc(l.author)}</b>${k ? `【${k}】` : '：'}${esc(String(l.body).replace(/\s+/g, ' ').slice(0, 90))}</span>`; })()}
       <span class="m"><b>#${it.id}</b>${it.assignee ? `<span class="asg">${esc(it.assignee)}</span>` : ''}${it.priority === 'high' ? '<span class="tag hi">高</span>' : ''}<span>${esc(it.author)}${it.arole === 'admin' ? '（负责人）' : ''}</span><span>${when(it.updated || it.created)}</span>${n ? `<span>💬 ${n}</span>` : ''}${it.status === 'wontfix' ? '<span>不改</span>' : ''}</span></div>`; }
   function lanes(rows, compact) {
     if (!LANE_CUR) LANE_CUR = ['question', 'review', 'open', 'approved', 'doing'].find(s => rows.some(it => laneOf(it) === s)) || 'open';
@@ -299,7 +309,7 @@
       return `<section class="lane${['question', 'review'].includes(s) ? ' you' : ''}${all ? '' : ' zero'}${s === LANE_CUR ? ' cur' : ''}" data-lane="${s}"><h3><i style="background:${SCOL[s === 'closed' ? 'done' : s]}"></i>${n}<span class="n">${all}</span>${['question', 'review'].includes(s) && all ? '<em>等负责人</em>' : ''}</h3><p>${d}</p>${xs.map(bcard).join('')}${cut ? `<button class="more" data-more>再看 ${Math.min(24, all - SHOW_CLOSED)} 条</button>` : ''}</section>`; }).join('')}</div>`; }
   function board(rows) { return `<div class="lanetabs">${LANES.map(([s, n]) => `<button data-tab="${s}" aria-pressed="${s === LANE_CUR}">${n} ${rows.filter(it => laneOf(it) === s).length}</button>`).join('')}</div>${lanes(rows)}`; }
   function byOwner(rows) { const g = new Map(); rows.forEach(it => { const k = it.assignee || ''; if (!g.has(k)) g.set(k, []); g.get(k).push(it); });
-    return `<div class="rows">${[...g.entries()].sort((a, b) => (!a[0]) - (!b[0]) || a[0].localeCompare(b[0])).map(([o, its]) => `<section class="row"><h2>${o ? av(o, 1) : ''}${esc(o || '没有负责方（由 Claude 先分诊）')}<small>${its.filter(isOpen).length} 条未完成</small></h2>${lanes(its, true)}</section>`).join('')}</div>`; }
+    return `<div class="rows">${[...g.entries()].sort((a, b) => (!a[0]) - (!b[0]) || a[0].localeCompare(b[0])).map(([o, its]) => `<section class="row"><h2>${o ? av(o, 1) : ''}${esc(o || '没有负责方（由 Claude 先分诊）')}<small>${its.filter(isOpen).length} 条未完成</small><span class="st">${[['approved', '可以做'], ['doing', '处理中'], ['review', '待验收'], ['question', '待决定']].map(([k, t]) => { const c = its.filter(x => x.status === k).length; return c ? `${t} ${c}` : ''; }).filter(Boolean).join(' · ')}</span></h2>${lanes(its, true)}</section>`).join('')}</div>`; }
   function drawer() { let d = $('#drw'); if (!d) { d = document.createElement('aside'); d.id = 'drw'; d.className = 'drw'; d.innerHTML = '<div class="dh"><b></b><button title="关闭（Esc）" data-close>×</button></div><div class="dbody"></div>'; document.body.append(d); }
     const it = OPEN && ITEMS.find(x => x.id === OPEN); d.classList.toggle('on', !!it); if (!it) return;
     d.querySelector('.dh b').textContent = `#${it.id} · ${STAT[it.status] || it.status}`; d.querySelector('.dbody').innerHTML = card(it); M && M.hydrate(d); }
@@ -386,6 +396,7 @@
   document.addEventListener('click', async e => {
     if (e.target.closest('[data-close]')) { OPEN = 0; drawer(); $$('.bc.sel').forEach(x => x.classList.remove('sel')); return; }
     const tb = e.target.closest('[data-tab]'); if (tb) { LANE_CUR = tb.dataset.tab; renderList(); return; }
+    const af = e.target.closest('[data-asgf]'); if (af) { F.asg = F.asg === af.dataset.asgf ? '' : af.dataset.asgf; render(); return; }
     if (e.target.closest('[data-more]')) { SHOW_CLOSED += 24; renderList(); return; }
     const bo = e.target.closest('.bc[data-open]'); if (bo) { openItem(+bo.dataset.open); return; }
     const img = e.target.closest('img[data-fid]'); if (img && img.src) { M.lightbox(img.src, img.alt); return; }
