@@ -44,7 +44,7 @@
   POST items                     新建批注 {page, url, title, selector, quote, rx, ry, px, py, vw, vh, device, kind, priority, body, shot, images, marks}
                                  marks：[{t: region, x, y, w, h}]（页面上框选的区域，页面像素）和 [{t: pen / rect, x, y, w, h}]（在截图上画的，按截图宽高的比例）
   POST items/<id>/reply          回复 {body, images}
-  POST items/<id>/status         改状态 {status, note}；status 见 STATUSES。非负责人不能改成「可以做」；
+  POST items/<id>/status         改状态 {status, note}；status 见 STATUSES。非负责人不能改成「可以做」「不改」；
                                  改成「已完成」或「待验收」会当作一次交付报告（note 即改了什么，必填），状态变为「待验收」
   POST items/<id>/decide         负责人的决定（只限管理员口令）{action, option, note}
                                  action: approve 可以做 / choose 选方案 / accept 通过 / rework 再改 / revert 改回来 / wontfix 不改 / reopen 重新打开
@@ -85,7 +85,7 @@ from collections import defaultdict, deque
 from http.server import ThreadingHTTPServer, BaseHTTPRequestHandler
 from urllib.parse import urlparse, parse_qs, unquote
 
-VERSION = '3.0.0'   # 改版本时同时改 CHANGELOG.md
+VERSION = '3.0.1'   # 改版本时同时改 CHANGELOG.md
 HERE = os.path.dirname(os.path.abspath(__file__))
 DB = os.environ.get('FB_DB', os.path.join(HERE, '..', 'data', 'fb.db'))
 PORT = int(os.environ.get('FB_PORT', '18810'))
@@ -337,6 +337,7 @@ class H(BaseHTTPRequestHandler):
                         note = clip(d.get('note'), 2000).strip()
                         # 只有负责人的决定是执行信号、只有负责人能验收：非负责人不能借「改状态」绕过去
                         if role != 'admin' and st == 'approved': return self.send(403, {'error': '「可以做」只能由负责人决定'})
+                        if role != 'admin' and st == 'wontfix': return self.send(403, {'error': '「不改」只能由负责人决定；觉得不该改，就回复理由或出方案，等负责人决定'})
                         if role != 'admin' and st in ('done', 'review'):
                             if not note: return self.send(400, {'error': '请写明改了什么（会作为交付报告，等负责人验收）'})
                             act = 'report'; add_reply(c, iid, name, cid, role, note, 'report', {'why': '', 'changes': [], 'links': [], 'rollback': '', 'via': 'status'}, now)

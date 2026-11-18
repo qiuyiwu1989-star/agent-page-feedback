@@ -146,7 +146,7 @@ curl -s -X POST -H "X-FB-Code: $FB_CODE" -H "X-FB-Name: Claude" -H "Content-Type
 | POST | `items/<id>/propose` | 出方案 `{summary, options, images}` → 待决定 |
 | POST | `items/<id>/report` | 交付报告 `{summary, why, changes, links, rollback, before, after, images}` → 待验收 |
 | POST | `items/<id>/decide` | 负责人的决定（只限管理员通行码）`{action, option, note}` |
-| POST | `items/<id>/status` | 直接改状态 `{status, note}`（认领时改「处理中」）。不能改成「可以做」；改成「已完成」会当作交付报告，等负责人验收 |
+| POST | `items/<id>/status` | 直接改状态 `{status, note}`（认领时改「处理中」）。不能改成「可以做」「不改」；改成「已完成」会当作交付报告，等负责人验收 |
 | POST | `items/<id>/assign` | 改负责方 `{assignee, note}`（提出人或负责人） |
 | POST | `items/<id>/check` | 交叉核对 `{body, result: pass / fail}`，不算验收 |
 | POST | `items/<id>/shot` | 补传或替换位置截图 |

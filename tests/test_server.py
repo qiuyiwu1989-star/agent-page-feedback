@@ -224,6 +224,13 @@ class ServerTest(unittest.TestCase):
         st, r = self.mcp({'jsonrpc': '2.0', 'id': 9, 'method': 'tools/call', 'params': {'name': tool, 'arguments': args}}, **kw)
         self.assertEqual(st, 200); return r['result']['isError'], r['result']['content'][0]['text']
 
+    def test_only_owner_closes_as_wontfix(self):
+        """「不改」是负责人的决定：成员和 agent 都不能用改状态绕过去。"""
+        iid = self.new_item(body='不改的守卫')['id']
+        self.assertEqual(self.req(f'items/{iid}/status', {'status': 'wontfix', 'note': '我觉得不用改'}, name='Claude')[0], 403)
+        self.assertEqual(self.req(f'items/{iid}/status', {'status': 'wontfix'}, key='agent-key', name='Claude')[0], 403)
+        self.assertEqual(json.loads(self.req(f'items/{iid}/decide', {'action': 'wontfix'}, code='admin-code', name='负责人')[1])['item']['status'], 'wontfix')
+
     def test_mcp(self):
         """MCP：连上就拿到规则；工具按同样的权限转调接口；没有拍板工具。"""
         self.assertIn(self.mcp({'jsonrpc': '2.0', 'id': 1, 'method': 'initialize', 'params': {}}, code='wrong')[0], (401, 429))   # 口令错（前面的测试可能已经触发了限流）
