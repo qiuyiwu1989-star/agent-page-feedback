@@ -44,7 +44,8 @@
   POST items                     新建批注 {page, url, title, selector, quote, rx, ry, px, py, vw, vh, device, kind, priority, body, shot, images, marks}
                                  marks：[{t: region, x, y, w, h}]（页面上框选的区域，页面像素）和 [{t: pen / rect, x, y, w, h}]（在截图上画的，按截图宽高的比例）
   POST items/<id>/reply          回复 {body, images}
-  POST items/<id>/status         改状态 {status, note}；status 见 STATUSES
+  POST items/<id>/status         改状态 {status, note}；status 见 STATUSES。非负责人不能改成「可以做」；
+                                 改成「已完成」或「待验收」会当作一次交付报告（note 即改了什么，必填），状态变为「待验收」
   POST items/<id>/decide         负责人的决定（只限管理员口令）{action, option, note}
                                  action: approve 可以做 / choose 选方案 / accept 通过 / rework 再改 / revert 改回来 / wontfix 不改 / reopen 重新打开
   POST items/<id>/propose        agent 出方案 {summary, options: [{key, title, desc, link}], images} → 状态变为「待决定」
@@ -60,6 +61,7 @@
   GET  deploys / deploys/<id>    发布登记（编号、谁、哪些任务、版本、状态、输出末尾）
   POST deploys/<id>/rollback     把整个网站恢复到第 <id> 次发布之前（只限 agent / 管理员口令；会新登记一次 rollback）
   GET  stats                     统计：各状态数量、一次通过率、平均交付用时、返工次数
+  GET  corrections.jsonl         负责人每次「再改 / 改回来」一行：任务原文、agent 当时交付的报告、负责人的原话（用于沉淀纠正）
   POST items/<id>/edit           改内容（作者或管理员）{body, kind, priority, assignee}
   POST items/<id>/assign         改负责方（作者或管理员）{assignee, note}；assignee 为空表示没有负责方
   POST items/<id>/check          交叉核对（另一个 agent 按「怎么算做完」核对交付）{body, result: pass / fail}；只给负责人参考，不算拍板
@@ -329,8 +331,15 @@ class H(BaseHTTPRequestHandler):
                         st = d.get('status')
                         if st not in STATUSES: return self.send(400, {'error': '状态不对'})
                         note = clip(d.get('note'), 2000).strip()
-                        c.execute('UPDATE items SET status=?, updated=? WHERE id=?', (st, now, iid))
-                        add_reply(c, iid, name, cid, role, f'把状态改为「{STATUSES[st]}」' + (f'：{note}' if note else ''), 'status', now=now)
+                        # 只有负责人的决定是执行信号、只有负责人能验收：非负责人不能借「改状态」绕过去
+                        if role != 'admin' and st == 'approved': return self.send(403, {'error': '「可以做」只能由负责人决定'})
+                        if role != 'admin' and st in ('done', 'review'):
+                            if not note: return self.send(400, {'error': '请写明改了什么（会作为交付报告，等负责人验收）'})
+                            act = 'report'; add_reply(c, iid, name, cid, role, note, 'report', {'why': '', 'changes': [], 'links': [], 'rollback': '', 'via': 'status'}, now)
+                            c.execute('UPDATE items SET status=?, updated=? WHERE id=?', ('review', now, iid))
+                        else:
+                            c.execute('UPDATE items SET status=?, updated=? WHERE id=?', (st, now, iid))
+                            add_reply(c, iid, name, cid, role, f'把状态改为「{STATUSES[st]}」' + (f'：{note}' if note else ''), 'status', now=now)
                     elif act == 'edit':
                         if not (own or role == 'admin'): return self.send(403, {'error': '只能改自己写的批注'})
                         txt = clip(d.get('body'), 4000).strip() or r['body']
@@ -378,6 +387,8 @@ class H(BaseHTTPRequestHandler):
                                            'act': act, 'triage': tri, 'waiting': g('question'), 'review': g('review')})
                 if p in ('digest', 'digests', 'deploy', 'site-file') or p.startswith('deploys'):
                     return self.ops(c, method, p, role, name)
+                if method == 'GET' and p == 'corrections.jsonl':
+                    return self.send(200, raw=corrections(c).encode(), ctype='application/x-ndjson; charset=utf-8')
                 if method == 'GET' and p == 'stats':
                     return self.send(200, stats(c))
                 if p == 'decisions':
@@ -565,18 +576,32 @@ def run_deploy(did, action, ref, rb, who, bundle=''):
         if '冲突' in out[-3000:]: what += '（冲突，没有改动）'
         push(card(f'{what}失败 · 第 {did} 次', f'**{who}** 发起的{what}没有成功，正式站可能没有变化，也可能只改了一部分。\n\n输出末尾：\n```\n{out[-800:]}\n```', tpl='red'))
 
+def corrections(c):
+    """负责人每次「再改 / 改回来」= 一条纠正：在具体任务上、针对具体交付、当场说的话。字段对齐个人上下文的 纠正.jsonl。"""
+    out = []
+    for x in c.execute("""SELECT r.id, r.item, r.author, r.body, r.meta, r.created, i.page, i.url, i.title, i.body AS task FROM replies r JOIN items i ON i.id=r.item
+                         WHERE r.kind='decision' AND i.deleted=0 AND (r.meta LIKE '%"action": "rework"%' OR r.meta LIKE '%"action": "revert"%') ORDER BY r.id"""):
+        try: m = json.loads(x['meta'] or '{}')
+        except ValueError: m = {}
+        rp = c.execute("SELECT author, body FROM replies WHERE item=? AND kind='report' AND id<? ORDER BY id DESC LIMIT 1", (x['item'], x['id'])).fetchone()
+        out.append(json.dumps({'ts': time.strftime('%Y-%m-%dT%H:%M:%S', time.localtime(x['created'])), '来源': f'页面批注 #{x["item"]}', '页面': page_url(dict(x)),
+                               '任务': x['task'], '我做的': rp['body'] if rp else '', '谁做的': rp['author'] if rp else '', '决定': ACTIONS[m.get('action', 'rework')][0],
+                               '他的原话': m.get('note') or x['body'], '谁打回的': x['author'], '他要的': '', '落差类型': '', '归类': ''}, ensure_ascii=False))
+    return '\n'.join(out) + ('\n' if out else '')
+
 def stats(c):
     """一次通过率 = 通过的任务里，从没被「再改 / 改回来」过的比例；交付用时 = 提出 → 负责人「通过」。"""
     cnt = {k: 0 for k in STATUSES}
     for r in c.execute('SELECT status, COUNT(*) n FROM items WHERE deleted=0 GROUP BY status'): cnt[r['status']] = r['n']
     acc = c.execute("""SELECT i.id, i.created, MAX(r.created) t FROM items i JOIN replies r ON r.item=i.id
                        WHERE i.deleted=0 AND r.kind='decision' AND r.meta LIKE '%"action": "accept"%' GROUP BY i.id""").fetchall()
-    rework = {r['item'] for r in c.execute("""SELECT DISTINCT item FROM replies WHERE kind='decision' AND (meta LIKE '%"action": "rework"%' OR meta LIKE '%"action": "revert"%')""")}
-    nrw = c.execute("""SELECT COUNT(*) FROM replies WHERE kind='decision' AND (meta LIKE '%"action": "rework"%' OR meta LIKE '%"action": "revert"%')""").fetchone()[0]
+    live = 'item IN (SELECT id FROM items WHERE deleted=0)'   # 已删除的任务（测试、误建）不计入
+    rework = {r['item'] for r in c.execute(f"""SELECT DISTINCT item FROM replies WHERE kind='decision' AND {live} AND (meta LIKE '%"action": "rework"%' OR meta LIKE '%"action": "revert"%')""")}
+    nrw = c.execute(f"""SELECT COUNT(*) FROM replies WHERE kind='decision' AND {live} AND (meta LIKE '%"action": "rework"%' OR meta LIKE '%"action": "revert"%')""").fetchone()[0]
     hours = [(r['t'] - r['created']) / 3600 for r in acc]
     return {'count': cnt, 'total': sum(cnt.values()), 'accepted': len(acc), 'first_pass': round(sum(1 for r in acc if r['id'] not in rework) / len(acc), 3) if acc else None,
             'avg_hours': round(sum(hours) / len(hours), 1) if hours else None, 'reworks': nrw,
-            'reports': c.execute("SELECT COUNT(*) FROM replies WHERE kind='report'").fetchone()[0], 'prefs': c.execute('SELECT COUNT(*) FROM prefs WHERE active=1').fetchone()[0]}
+            'reports': c.execute(f"SELECT COUNT(*) FROM replies WHERE kind='report' AND {live}").fetchone()[0], 'prefs': c.execute('SELECT COUNT(*) FROM prefs WHERE active=1').fetchone()[0]}
 
 def num(v):
     try: return float(v)

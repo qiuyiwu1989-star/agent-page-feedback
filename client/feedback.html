@@ -173,7 +173,7 @@
   const av = (n, sm) => isAI(n) ? `<span class="av ai${sm ? ' sm' : ''}" title="${esc(n)}">AI</span>` : `<span class="av${sm ? ' sm' : ''}" style="background:${colOf(n)}" title="${esc(n)}">${esc(String(n || '?').trim().slice(0, 1).toUpperCase())}</span>`;
   async function api(path, body) {
     const r = await fetch(API + path, { method: body ? 'POST' : 'GET', headers: { 'Content-Type': 'application/json', 'X-FB-Code': LS.get('code'), 'X-FB-Name': encodeURIComponent(LS.get('name')), 'X-FB-Cid': LS.get('cid') }, body: body ? JSON.stringify(body) : undefined, cache: 'no-store' });
-    if ((r.headers.get('content-type') || '').includes('markdown')) return r.text();
+    if (/markdown|ndjson/.test(r.headers.get('content-type') || '')) return r.text();
     const j = await r.json().catch(() => ({ error: '服务器没有响应（' + r.status + '）' })); if (!r.ok) throw Object.assign(new Error(j.error || '出错了'), { status: r.status }); return j; }
 
   let ITEMS = [], role = '', VIEW = 'cards', F = { st: 'all', kind: '', who: '', page: '', q: '', asg: '' }, STATS = null, PREFS = [];
@@ -224,7 +224,7 @@
         <select id="fp"><option value="">全部页面</option>${pages.map(([p, t]) => `<option value="${esc(p)}"${F.page === p ? ' selected' : ''}>${esc(t)}</option>`).join('')}</select>
         <select id="fa"><option value="">全部负责方</option><option value="-"${F.asg === '-' ? ' selected' : ''}>没有负责方</option>${asgs.map(a => `<option value="${esc(a)}"${F.asg === a ? ' selected' : ''}>${esc(a)}</option>`).join('')}</select>
         <input type="search" id="fq" placeholder="搜意见、回复" value="${esc(F.q)}">
-        <span class="acts"><button class="btn pri" id="nr">新建需求</button><button class="btn" id="rf">刷新</button><button class="btn" id="exr">导出复盘报告</button><button class="btn pri" id="ex">导出给 agent</button></span></div>
+        <span class="acts"><button class="btn pri" id="nr">新建需求</button><button class="btn" id="rf">刷新</button><button class="btn" id="exc">导出打回记录</button><button class="btn" id="exr">导出复盘报告</button><button class="btn pri" id="ex">导出给 agent</button></span></div>
       <div id="list"></div>
       <section class="agent"><h2>agent 怎么读取和回写</h2>
         <p>通行码放在请求头 <code>X-FB-Code</code> 里（找负责人要，不要写进代码仓库或共享文档）。完整规则见仓库里的 AGENTS.md。读取工作清单：</p>
@@ -240,7 +240,7 @@
     $('#fq').oninput = e => { F.q = e.target.value.trim(); renderList(); }; $('#fa').onchange = e => { F.asg = e.target.value; renderList(); };
     $('#nr').onclick = () => { $('#nrK').innerHTML = Object.entries(KIND).map(([k, v]) => `<option value="${k}"${k === 'suggest' ? ' selected' : ''}>${v}</option>`).join('');
       $('#asgl').innerHTML = [...new Set(['Claude', 'Codex', ...asgs])].map(a => `<option value="${esc(a)}">`).join(''); $('#nrE').textContent = ''; $('#nrq').showModal(); $('#nrT').focus(); };
-    $('#rf').onclick = () => load().catch(er => alert(er.message)); $('#ex').onclick = exportMd; $('#exr').onclick = exportReview;
+    $('#rf').onclick = () => load().catch(er => alert(er.message)); $('#ex').onclick = exportMd; $('#exr').onclick = exportReview; $('#exc').onclick = exportCorr;
     renderList();
   }
   const pass = it => { const q = F.q.toLowerCase();
@@ -343,6 +343,8 @@
   const show = (title, desc, md, n) => { $('#dlgT').textContent = title; $('#dlgP').textContent = desc; $('#md').value = md; $('#mdn').textContent = n; $('#dlg').showModal(); };
   async function exportMd() { const st = F.st === 'todo' || F.st === 'all' ? 'approved,doing,open,question,review' : F.st;
     try { const md = await api('export.md?status=' + st); show('给 agent 的工作清单', '先是负责人偏好手册，然后分「可以执行 / 待分诊 / 等负责人」三组，带定位、截图地址、负责人信号和讨论记录。', md, (md.match(/^### #/gm) || []).length + ' 条'); } catch (er) { alert(er.message); } }
+  async function exportCorr() { try { const t = (await api('corrections.jsonl')).trim();
+    show('打回记录', '负责人每次「再改」「改回来」一行：任务是什么、agent 当时交付了什么、负责人的原话。可以追加进个人上下文的纠正记录，也可以从中总结偏好手册。', t || '（还没有打回记录）', (t ? t.split('\n').length : 0) + ' 条'); } catch (er) { alert(er.message); } }
   function exportReview() { const its = ITEMS.slice().sort((a, b) => a.id - b.id), PP = people(), fixed = its.filter(it => it.status === 'done');
     const out = [`# 网站协作复盘（${new Date().toLocaleString('zh-CN')}）`, '', `- 批注 ${its.length} 条，涉及 ${new Set(its.map(i => i.page)).size} 个页面；已改好 ${fixed.length} 条，未完成 ${its.filter(isOpen).length} 条`,
       `- 参与者：${PP.map(([n, p]) => isAI(n) ? `${n}（AI，处理 ${p.handled.size} 条）` : `${n}（提出 ${p.raised} 条${p.replies ? '，回复 ' + p.replies + ' 条' : ''}）`).join('；')}`, ''];

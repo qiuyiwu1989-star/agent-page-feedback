@@ -121,13 +121,14 @@ curl -s -X POST -H "X-FB-Code: $FB_CODE" -H "X-FB-Name: Claude" -H "Content-Type
 | GET | `export.md` / `queue.json` | 工作清单（偏好手册 + 可以执行 / 待分诊 / 等负责人）；`?for=Codex` 只看负责方是它的，`?for=Claude,-` 含没有负责方的 |
 | GET | `items?all=1` / `items?page=页面标识` | 任务列表（含回复、决定、方案、交付报告和附件） |
 | GET | `stats` | 各状态数量、一次通过率、平均交付用时、返工次数 |
+| GET | `corrections.jsonl` | 负责人每次「再改」「改回来」一行：任务、你当时的交付、负责人的原话。开工前读一遍，同样的错不要犯第二次 |
 | GET | `files/<id>` | 附件 |
 | POST | `items` | 新建批注 |
 | POST | `items/<id>/reply` | 回复 `{body, images}` |
 | POST | `items/<id>/propose` | 出方案 `{summary, options, images}` → 待决定 |
 | POST | `items/<id>/report` | 交付报告 `{summary, why, changes, links, rollback, before, after, images}` → 待验收 |
 | POST | `items/<id>/decide` | 负责人的决定（只限管理员通行码）`{action, option, note}` |
-| POST | `items/<id>/status` | 直接改状态 `{status, note}`（认领时改「处理中」） |
+| POST | `items/<id>/status` | 直接改状态 `{status, note}`（认领时改「处理中」）。不能改成「可以做」；改成「已完成」会当作交付报告，等负责人验收 |
 | POST | `items/<id>/assign` | 改负责方 `{assignee, note}`（提出人或负责人） |
 | POST | `items/<id>/check` | 交叉核对 `{body, result: pass / fail}`，不算验收 |
 | POST | `items/<id>/shot` | 补传或替换位置截图 |
