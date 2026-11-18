@@ -33,7 +33,7 @@ class ServerTest(unittest.TestCase):
                     'open(%r, "a").write("|".join([e["FB_DEPLOY_ACTION"], e["FB_DEPLOY_ID"], e["FB_DEPLOY_REF"], e["FB_ROLLBACK_ID"], str("FB_TEAM_CODE" in e)]) + "\\n")\n'
                     'time.sleep(float(e["FB_DEPLOY_REF"][5:]) if e["FB_DEPLOY_REF"].startswith("slow-") else 0)\n'
                     'print("done", e["FB_DEPLOY_ID"]); sys.exit(1 if e["FB_DEPLOY_REF"] == "bad" else 0)\n' % cls.log)
-        env = dict(os.environ, FB_TEAM_CODE='team-code', FB_ADMIN_CODE='admin-code', FB_AGENT_CODE='agent-key', FB_AGENT_ENROLL='enroll-once', FB_DB=os.path.join(cls.tmp.name, 'fb.db'), FB_PORT=str(cls.port), FB_SITE='https://example.com/',
+        env = dict(os.environ, FB_TEAM_CODE='team-code', FB_ADMIN_CODE='admin-code', FB_AGENT_CODE='agent-key', FB_AGENT_ENROLL='enroll-once', FB_STUCK_MIN='0', FB_DB=os.path.join(cls.tmp.name, 'fb.db'), FB_PORT=str(cls.port), FB_SITE='https://example.com/',
                    FB_NOTIFY_URL=f'http://127.0.0.1:{cls.hook.server_port}/hook', FB_DEPLOY_CMD=f'{sys.executable} -I {script}')
         cls.proc = subprocess.Popen([sys.executable, '-I', os.path.join(ROOT, 'server', 'fb_server.py')], env=env, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
         cls.base = f'http://127.0.0.1:{cls.port}/api/fb/'
@@ -230,6 +230,19 @@ class ServerTest(unittest.TestCase):
         self.assertEqual(self.req(f'items/{iid}/status', {'status': 'wontfix', 'note': '我觉得不用改'}, name='Claude')[0], 403)
         self.assertEqual(self.req(f'items/{iid}/status', {'status': 'wontfix'}, key='agent-key', name='Claude')[0], 403)
         self.assertEqual(json.loads(self.req(f'items/{iid}/decide', {'action': 'wontfix'}, code='admin-code', name='负责人')[1])['item']['status'], 'wontfix')
+
+    def test_presence_and_activity(self):
+        """在场：谁来过、谁在做哪张、是否可能卡住；动态：所有工单上的事按时间倒序。"""
+        iid = self.new_item(body='在场测试')['id']
+        self.req(f'items/{iid}/decide', {'action': 'approve'}, code='admin-code', name='负责人')
+        self.req(f'items/{iid}/status', {'status': 'doing', 'note': 'Codex-2 处理中'}, name='Codex-2', cid='c2')
+        self.req('queue.json', name='Codex-2')
+        pr = json.loads(self.req('presence')[1])
+        me = next(p for p in pr['people'] if p['name'] == 'Codex-2')
+        self.assertIn(iid, me.get('doing', [])); self.assertEqual(me['what'], '看清单')
+        d = next(x for x in pr['doing'] if x['item'] == iid); self.assertEqual(d['who'], 'Codex-2'); self.assertTrue(d['stuck'])   # 测试里 FB_STUCK_MIN=0
+        ev = json.loads(self.req('activity?limit=20')[1])['events']
+        self.assertEqual([e['kind'] for e in ev if e['item'] == iid][:3], ['status', 'decision', 'new'])
 
     def test_mcp(self):
         """MCP：连上就拿到规则；工具按同样的权限转调接口；没有拍板工具。"""

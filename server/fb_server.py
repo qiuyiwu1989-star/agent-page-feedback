@@ -78,6 +78,8 @@
                                  （choice 的取值可以按项目改，见 CHOICES）
   POST mcp                       MCP 服务（Streamable HTTP，JSON-RPC）：agent 连上就拿到协作规则（像 skill 一样）和工具（读清单、认领、回复、出方案、
                                  交付、交叉核对、开需求……；没有拍板工具）。口令同样放在请求头 X-FB-Code / X-FB-Key，署名 X-FB-Name
+  GET  presence                  在场：最近来过的人和 agent（署名、角色、最后一次操作、正在做的工单、是否可能卡住）
+  GET  activity?limit=80         全局动态：所有工单上的新建、回复、决定、方案、交付、核对、认领，按时间倒序
   GET  client/<file>             前端文件（不要口令）
 """
 import base64, hashlib, json, os, re, secrets, sqlite3, threading, time, hmac
@@ -85,7 +87,7 @@ from collections import defaultdict, deque
 from http.server import ThreadingHTTPServer, BaseHTTPRequestHandler
 from urllib.parse import urlparse, parse_qs, unquote
 
-VERSION = '3.0.1'   # 改版本时同时改 CHANGELOG.md
+VERSION = '3.1.0'   # 改版本时同时改 CHANGELOG.md
 HERE = os.path.dirname(os.path.abspath(__file__))
 DB = os.environ.get('FB_DB', os.path.join(HERE, '..', 'data', 'fb.db'))
 PORT = int(os.environ.get('FB_PORT', '18810'))
@@ -260,6 +262,7 @@ class H(BaseHTTPRequestHandler):
             if limited(FAILS, ip, 10, 600): return self.send(429, {'error': '尝试次数太多，请 10 分钟后再试'})
             return self.send(401, {'error': '口令不对'})
         name, cid = self.who()
+        seen(name, role, method, p)
         if method == 'POST' and limited(WRITES, ip, 120, 60): return self.send(429, {'error': '操作太频繁，稍等一下'})
         try:
             with LOCK, db() as c:
@@ -394,6 +397,8 @@ class H(BaseHTTPRequestHandler):
                     return self.ops(c, method, p, role, name)
                 if method == 'GET' and p == 'corrections.jsonl':
                     return self.send(200, raw=corrections(c).encode(), ctype='application/x-ndjson; charset=utf-8')
+                if method == 'GET' and p == 'presence': return self.send(200, presence(c))
+                if method == 'GET' and p == 'activity': return self.send(200, {'events': activity(c, int(num(qs.get('limit')) or 80))})
                 if method == 'GET' and p == 'stats':
                     return self.send(200, stats(c))
                 if p == 'decisions':
@@ -569,6 +574,42 @@ def push(payload):
     threading.Thread(target=go, daemon=True).start()
 
 def sha(v): return hashlib.sha256(v.encode()).hexdigest()
+
+# ---------- 在场与动态 ----------
+SEEN = {}            # 署名 → {role, seen, what, item}（只在内存里；服务重启后从工单记录里补）
+STUCK = int(os.environ.get('FB_STUCK_MIN', '30')) * 60   # 认领后超过这么久没有动静，算「可能卡住了」（FB_STUCK_MIN，默认 30 分钟）
+def seen(name, role, method, p):
+    if not name or name == '匿名' or p in ('presence', 'activity', 'ping') or p.startswith('files/'): return
+    m = re.match(r'items/(\d+)/(\w+)', p)
+    what = (m.group(2) if m else p) if method == 'POST' else ('看清单' if p in ('queue.json', 'export.md') else '查看')
+    SEEN[name] = {'role': role, 'seen': time.time(), 'what': what, 'item': int(m.group(1)) if m else SEEN.get(name, {}).get('item')}
+
+def presence(c):
+    """每个参与方：最后活动（请求或在工单上留下的记录，取较新的）、正在做的工单（最近一次把它认领成「处理中」的人）。"""
+    people = {}
+    for r in c.execute("SELECT author, MAX(created) t FROM replies WHERE author<>'' GROUP BY author"): people[r['author']] = {'name': r['author'], 'seen': r['t'], 'what': '', 'item': None, 'role': ''}
+    for n, v in SEEN.items():
+        p = people.setdefault(n, {'name': n, 'seen': 0, 'what': '', 'item': None, 'role': ''})
+        if v['seen'] >= p['seen']: p.update(seen=v['seen'], what=v['what'], item=v['item'])
+        p['role'] = v['role']
+    now, doing = time.time(), []
+    for it in c.execute("SELECT id, title, body, assignee, updated FROM items WHERE deleted=0 AND status='doing'"):
+        cl = c.execute("SELECT author, created FROM replies WHERE item=? AND kind='status' AND body LIKE '%处理中%' ORDER BY id DESC LIMIT 1", (it['id'],)).fetchone()
+        last = c.execute("SELECT MAX(created) FROM replies WHERE item=?", (it['id'],)).fetchone()[0] or it['updated']
+        who = cl['author'] if cl else (it['assignee'] or '')
+        active = max(last, people.get(who, {}).get('seen') or 0)
+        doing.append({'item': it['id'], 'title': it['title'] or (it['body'] or '')[:40], 'who': who, 'since': cl['created'] if cl else it['updated'], 'last': active, 'stuck': now - active > STUCK})
+    for d in doing:
+        if d['who'] in people: people[d['who']].setdefault('doing', []).append(d['item'])
+    return {'now': now, 'stuck_after': STUCK, 'people': sorted(people.values(), key=lambda x: -x['seen'])[:40], 'doing': doing}
+
+def activity(c, limit=80):
+    limit = max(1, min(limit, 300))
+    ev = [{'t': r['created'], 'who': r['author'], 'kind': 'new', 'item': r['id'], 'title': r['title'] or '', 'text': (r['body'] or '')[:160], 'role': r['arole']}
+          for r in c.execute('SELECT id, created, author, title, body, arole FROM items WHERE deleted=0 ORDER BY id DESC LIMIT ?', (limit,))]
+    ev += [{'t': r['created'], 'who': r['author'], 'kind': r['kind'], 'item': r['item'], 'title': r['title'] or '', 'text': (r['body'] or '')[:160], 'role': r['role']}
+           for r in c.execute('SELECT r.created, r.author, r.kind, r.item, r.body, r.role, i.title FROM replies r JOIN items i ON i.id=r.item WHERE i.deleted=0 ORDER BY r.id DESC LIMIT ?', (limit,))]
+    return sorted(ev, key=lambda e: -e['t'])[:limit]
 
 # ---------- MCP：给 agent 的规则（像 skill）+ 工具 ----------
 MCP_GUIDE = """你连上的是一个「页面上的 AI 工单系统」（agent-page-feedback）的任务中心。网站上的每一条意见、每一个需求都是一张工单。

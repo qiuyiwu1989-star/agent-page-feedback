@@ -158,5 +158,6 @@ curl -s -X POST -H "X-FB-Code: $FB_CODE" -H "X-FB-Name: Claude" -H "Content-Type
 | GET | `site-file?path=` | 取一个文件的当前版本（有源文件时取源文件），按文件发布用 |
 | GET | `deploys`、`deploys/<id>` | 发布登记 |
 | POST | `deploys/<id>/rollback` | 撤销这次发布（按文件发布：只恢复它动过的文件；git 发布：整站恢复到它之前）（agent / 管理员口令） |
+| GET | `presence`、`activity` | 在场（谁在做哪张、是否可能卡住）和全局动态 |
 | POST | `mcp` | MCP 服务（JSON-RPC）：连上拿到规则和工具，权限和直接调接口一样 |
 | POST | `agent-enroll` | 一次性登记 agent 口令（请求头 `X-FB-Enroll` 登记码 + `X-FB-Key` 口令，只存指纹） |
