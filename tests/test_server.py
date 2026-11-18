@@ -214,6 +214,38 @@ class ServerTest(unittest.TestCase):
         self.assertEqual(self.req(f'items/{a["id"]}/check', {'body': ''}, name='Codex')[0], 400)
         self.assertIn('【核对有问题】', self.req('export.md')[1].decode())
 
+    def mcp(self, msg, code='team-code', name='Codex'):
+        r = urllib.request.Request(self.base + 'mcp', data=json.dumps(msg).encode(), headers={'Content-Type': 'application/json', 'X-FB-Code': code, 'X-FB-Name': name})
+        try:
+            with urllib.request.urlopen(r) as x: b = x.read(); return x.status, (json.loads(b) if b else None)
+        except urllib.error.HTTPError as e: return e.code, None
+
+    def call(self, tool, args, **kw):
+        st, r = self.mcp({'jsonrpc': '2.0', 'id': 9, 'method': 'tools/call', 'params': {'name': tool, 'arguments': args}}, **kw)
+        self.assertEqual(st, 200); return r['result']['isError'], r['result']['content'][0]['text']
+
+    def test_mcp(self):
+        """MCP：连上就拿到规则；工具按同样的权限转调接口；没有拍板工具。"""
+        self.assertIn(self.mcp({'jsonrpc': '2.0', 'id': 1, 'method': 'initialize', 'params': {}}, code='wrong')[0], (401, 429))   # 口令错（前面的测试可能已经触发了限流）
+        st, r = self.mcp({'jsonrpc': '2.0', 'id': 1, 'method': 'initialize', 'params': {'protocolVersion': '2025-06-18'}})
+        self.assertEqual(r['result']['protocolVersion'], '2025-06-18'); ins = r['result']['instructions']
+        self.assertIn('只把负责人', ins); self.assertIn('署名：Codex', ins); self.assertIn('不能拍板', ins)
+        self.assertEqual(self.mcp({'jsonrpc': '2.0', 'method': 'notifications/initialized'})[0], 202)
+        names = {t['name'] for t in self.mcp({'jsonrpc': '2.0', 'id': 2, 'method': 'tools/list'})[1]['result']['tools']}
+        self.assertIn('claim', names); self.assertIn('report', names); self.assertFalse(any('decide' in n for n in names))
+        # 开需求 → 认领 → 交付 → 别人核对；状态变化和直接调接口一样
+        err, t = self.call('create_request', {'title': 'MCP 测试需求', 'body': '怎么算做完：有一个按钮', 'assignee': 'Codex'}, name='Claude'); self.assertFalse(err, t)
+        iid = json.loads(t)['item']['id']
+        err, t = self.call('list_tasks', {'for': 'Codex'}); self.assertIn(iid, [x['id'] for x in json.loads(t)['triage']])
+        err, t = self.call('claim', {'id': iid}); self.assertEqual(json.loads(t)['item']['status'], 'doing'); self.assertIn('Codex 处理中', json.loads(t)['item']['replies'][-1]['body'])
+        err, t = self.call('report', {'id': iid, 'summary': '加了按钮', 'changes': ['1. 有按钮 ✓'], 'rollback': 'deploy#3'}); self.assertEqual(json.loads(t)['item']['status'], 'review')
+        err, t = self.call('crosscheck', {'id': iid, 'result': 'pass', 'body': '逐条核对通过'}, name='Claude'); self.assertEqual(json.loads(t)['item']['replies'][-1]['kind'], 'check')
+        err, t = self.call('get_task', {'id': iid}); self.assertEqual(json.loads(t)['assignee'], 'Codex')
+        err, t = self.call('briefing', {'for': 'Codex'}); self.assertIn('MCP 测试需求', t)
+        # 权限照旧：成员口令发不了汇总；没有的工具报错
+        err, t = self.call('send_digest', {'title': 'x', 'markdown': 'y'}); self.assertTrue(err)
+        st, r = self.mcp({'jsonrpc': '2.0', 'id': 3, 'method': 'tools/call', 'params': {'name': 'decide', 'arguments': {}}}); self.assertIn('error', r)
+
     def test_marks(self):
         """框选区域和截图上的圈画：存下来，清单里告诉 agent；乱七八糟的输入被丢掉。"""
         marks = [{'t': 'region', 'x': 100, 'y': 2400.4, 'w': 600, 'h': 320}, {'t': 'pen', 'x': .1, 'y': .2, 'w': .3, 'h': .1}, {'t': 'evil', 'x': 1}, 'junk']

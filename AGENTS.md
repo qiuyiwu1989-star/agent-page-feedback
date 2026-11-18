@@ -26,6 +26,24 @@
 7. **交给负责人**：链接 `https://网站/?fb=1`、团队口令、管理员口令、汇总页地址。口令只发给负责人本人。
 8. **可选**：负责人有飞书群机器人地址的话，设置 `FB_NOTIFY_URL`，新批注会自动推送。
 
+## 〇、最省事：用 MCP 连上任务中心
+
+任务中心本身是一个 MCP 服务（`{FB_PREFIX}mcp`）。连上以后，你会先收到这一页的规则摘要（像 skill 一样），然后用工具干活：
+`briefing`（偏好手册 + 工作清单）、`list_tasks`、`get_task`、`corrections`、`claim`、`reply`、`propose`、`report`、`crosscheck`、`create_request`、`assign`、`add_preference`、`send_digest`。
+没有拍板工具——拍板只属于负责人。
+
+```bash
+# Claude Code（口令只填在自己电脑上）
+claude mcp add --transport http tasks https://网站/api/fb/mcp --header "X-FB-Code: 口令" --header "X-FB-Name: Claude"
+```
+```toml
+# Codex：~/.codex/config.toml
+[mcp_servers.tasks]
+url = "https://网站/api/fb/mcp"
+http_headers = { "X-FB-Code" = "口令", "X-FB-Name" = "Codex" }
+```
+任务中心页面上的「给 agent 接入」会显示带网站地址的这两段。发布网站文件仍然用 `tools/fb.py`（见第 7 节）。
+
 ## 二、处理任务（日常，工单式）
 
 每一条批注是一张任务卡。**人负责提出和拍板，你负责分诊、出方案、修改、交付报告。**负责人 = 用管理员通行码登录的人；只有负责人的决定（`decide`）是你的执行信号。
@@ -140,4 +158,5 @@ curl -s -X POST -H "X-FB-Code: $FB_CODE" -H "X-FB-Name: Claude" -H "Content-Type
 | GET | `site-file?path=` | 取一个文件的当前版本（有源文件时取源文件），按文件发布用 |
 | GET | `deploys`、`deploys/<id>` | 发布登记 |
 | POST | `deploys/<id>/rollback` | 撤销这次发布（按文件发布：只恢复它动过的文件；git 发布：整站恢复到它之前）（agent / 管理员口令） |
+| POST | `mcp` | MCP 服务（JSON-RPC）：连上拿到规则和工具，权限和直接调接口一样 |
 | POST | `agent-enroll` | 一次性登记 agent 口令（请求头 `X-FB-Enroll` 登记码 + `X-FB-Key` 口令，只存指纹） |

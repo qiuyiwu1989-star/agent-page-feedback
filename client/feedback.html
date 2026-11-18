@@ -22,6 +22,33 @@
   .how li { background: var(--surface); border: 1px solid var(--line); border-radius: 16px; padding: 14px 16px 14px 52px; position: relative; font-size: 13.5px; color: var(--ink-2); line-height: 1.7; counter-increment: s; }
   .how li::before { content: counter(s); position: absolute; left: 16px; top: 14px; width: 24px; height: 24px; border-radius: 50%; background: #1f2430; color: #fff; display: grid; place-items: center; font-size: 12.5px; font-weight: 600; }
   .how b { color: var(--ink); display: block; }
+  .lk { border: 0; background: none; color: var(--link); padding: 0; cursor: pointer; font-size: inherit; }
+  /* 看板 */
+  .board { display: flex; gap: 12px; overflow-x: auto; padding: 4px 2px 12px; align-items: flex-start; margin-top: 14px; }
+  .lane { flex: 1 1 230px; min-width: 220px; background: #EBEDF2; border-radius: 14px; padding: 10px; min-height: 140px; transition: background .12s, box-shadow .12s; }
+  .lane.you { background: #F3EDFF; } .lane.zero { flex: 0 0 150px; min-width: 150px; }
+  .lane > h3 { display: flex; align-items: center; gap: 8px; margin: 2px 4px 4px; font-size: 14px; } .lane > h3 .n { color: var(--ink-3); font-weight: 400; }
+  .lane > h3 i { width: 9px; height: 9px; border-radius: 50%; } .lane > h3 em { margin-left: auto; font-style: normal; font-size: 11px; color: #fff; background: #7C3AED; padding: 0 8px; border-radius: 99px; }
+  .lane > p { margin: 0 4px 10px; color: var(--ink-3); font-size: 12px; } .lane.zero > p { display: none; }
+  .lane.over { box-shadow: inset 0 0 0 2px #2446B8; background: #E4EAFB; } .lane.no { box-shadow: inset 0 0 0 2px #DC2626; }
+  .lane .more { width: 100%; border: 1px dashed var(--line-strong); background: transparent; border-radius: 10px; padding: 6px; color: var(--ink-3); font-size: 12.5px; cursor: pointer; }
+  .bc { display: grid; grid-template-columns: 1fr auto; gap: 4px 8px; background: var(--surface); border: 1px solid var(--line); border-radius: 12px; padding: 10px 12px; margin-bottom: 8px; cursor: pointer; font-size: 13px; }
+  .bc:hover { border-color: var(--line-strong); box-shadow: 0 2px 8px rgba(15,20,35,.06); } .bc.sel { border-color: #2446B8; box-shadow: 0 0 0 2px rgba(36,70,184,.18); } .bc.drag { opacity: .45; }
+  .bc[draggable="true"] { cursor: grab; }
+  .bc .t { grid-column: 1; line-height: 1.5; display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden; word-break: break-word; }
+  .bc .th { grid-column: 2; grid-row: 1 / span 2; width: 64px; height: 48px; border-radius: 8px; object-fit: cover; object-position: top; background: var(--sunken); border: 1px solid var(--line); }
+  .bc .m { grid-column: 1 / -1; display: flex; flex-wrap: wrap; gap: 4px 8px; align-items: center; color: var(--ink-3); font-size: 11.5px; }
+  .bc .m b { color: var(--ink); font-weight: 600; } .bc .asg { font-size: 11px; padding: 0 6px; }
+  .rows .row { margin-top: 18px; } .rows .row > h2 { font-size: 16px; margin: 0 0 4px; display: flex; gap: 8px; align-items: center; } .rows .row > h2 small { color: var(--ink-3); font-weight: 400; font-size: 13px; }
+  .rows .board { margin-top: 4px; } .rows .lane { min-height: 80px; }
+  .lanetabs { display: none; gap: 6px; overflow-x: auto; margin-top: 12px; } .lanetabs button { flex: none; height: 30px; padding: 0 12px; border-radius: 99px; border: 1px solid var(--line); background: var(--surface); font-size: 13px; }
+  .lanetabs button[aria-pressed="true"] { background: #1f2430; color: #fff; border-color: #1f2430; }
+  .drw { position: fixed; top: 0; right: 0; bottom: 0; width: min(560px, 100vw); background: var(--canvas); box-shadow: -10px 0 40px rgba(15,20,35,.18); z-index: 60; overflow-y: auto; transform: translateX(105%); transition: transform .18s ease; }
+  .drw.on { transform: none; } .drw .dh { position: sticky; top: 0; z-index: 2; display: flex; align-items: center; gap: 8px; padding: 12px 16px; background: var(--canvas); border-bottom: 1px solid var(--line); }
+  .drw .dh b { flex: 1; } .drw .dh button { border: 0; background: none; font-size: 22px; line-height: 1; cursor: pointer; color: var(--ink-3); }
+  .drw .dbody { padding: 14px 16px 60px; } .drw .cd { grid-template-columns: minmax(0, 1fr); } .drw .cb { min-width: 0; overflow-wrap: anywhere; grid-template-columns: minmax(0, 1fr); } .drw .shot { border-right: 0; border-bottom: 1px solid var(--line); min-height: 120px; }
+  .tip { position: fixed; left: 50%; bottom: 24px; transform: translateX(-50%); background: #1f2430; color: #fff; padding: 9px 16px; border-radius: 10px; font-size: 13.5px; z-index: 80; display: none; max-width: 90vw; }
+  .mini { margin: 18px 0 0; color: var(--ink-2); font-size: 14px; } .mini b { color: var(--ink); }
   /* 总览 */
   .ov { display: grid; grid-template-columns: repeat(6, minmax(0, 1fr)); gap: 12px; margin-top: 26px; }
   .ov div { background: var(--surface); border: 1px solid var(--line); border-radius: 16px; padding: 14px 16px; }
@@ -121,24 +148,28 @@
   .prefs .pf b { flex: 1; font-weight: 500; } .prefs .pf small { color: var(--ink-3); white-space: nowrap; } .prefs .pf a { font-size: 12.5px; }
   .prefs form { display: flex; gap: 8px; } .prefs form input { flex: 1; height: 38px; border-radius: 99px; border: 1px solid var(--line-strong); padding: 0 14px; }
   @media (max-width: 1000px) { .ov { grid-template-columns: repeat(3, 1fr); } .how { grid-template-columns: 1fr 1fr; } }
-  @media (max-width: 760px) { .how { grid-template-columns: 1fr; } .cd { grid-template-columns: 1fr; } .shot { border-right: 0; border-bottom: 1px solid var(--line); min-height: 120px; } .acts { margin-left: 0; } .ov { grid-template-columns: 1fr 1fr; } .bar { position: static; } .ev { grid-template-columns: 28px minmax(0, 1fr); } .ev .tm { grid-column: 2; } }
+  @media (max-width: 760px) { .seg { display: flex; overflow-x: auto; max-width: 100%; } .seg button { white-space: nowrap; flex: none; } #exc, #exr, #ex { display: none; }
+    .bar select { flex: 1 1 40%; }
+    .board { display: block; overflow: visible; } .board .lane:not(.cur) { display: none; } .board .lane { min-width: 0; } .lanetabs { display: flex; } .rows .board .lane { display: block; }
+    .how { grid-template-columns: 1fr; } .cd { grid-template-columns: 1fr; } .shot { border-right: 0; border-bottom: 1px solid var(--line); min-height: 120px; } .acts { margin-left: 0; } .ov { grid-template-columns: 1fr 1fr; } .bar { position: static; } .ev { grid-template-columns: 28px minmax(0, 1fr); } .ev .tm { grid-column: 2; } }
 </style>
 </head>
 <body>
 <main class="wrap">
   <header class="hero"><nav class="crumb" id="crumb">agent-page-feedback</nav>
     <h1>任务中心 <span class="badge">团队内部</span></h1>
-    <p>网站上的每一条意见都是一张任务卡：人负责提出和拍板，agent 负责分诊、出方案、修改和交付报告。所有讨论、决定和修改都记在卡片上，「时间线」可以复盘全过程。</p>
-    <ol class="how">
-      <li><b>在页面上提出</b>打开任意页面，点左下角「批注」，再点要改的地方，自动附位置截图。</li>
-      <li><b>agent 分诊</b>明确的写清打算怎么改；不确定的出 A / B 方案，附预览链接。</li>
-      <li><b>负责人拍板</b>用管理员通行码登录的人点「可以做」或「选 A / B」，这就是 agent 的执行信号。</li>
-      <li><b>agent 交付</b>改完附交付报告：改了什么、为什么、改前 / 改后截图、回滚编号。</li>
-      <li><b>负责人验收</b>点「通过」完成；「再改」写明意见；「改回来」恢复原样。</li>
-    </ol>
+    <p>每一条意见、每一个需求都是一张卡。人提出和拍板，agent 分诊、修改、交付。把卡拖到另一道就是改状态（拍板类只有负责人能拖）。<button class="lk" id="mcpb">给 agent 接入 ›</button></p>
   </header>
   <div id="app"></div>
 </main>
+<dialog id="mcpd"><div class="dlg"><h3>给 agent 接入</h3>
+  <p>任务中心是一个 MCP 服务。agent 连上以后会先收到协作规则（只做自己的工单、先认领、只认负责人的决定、交付等验收），再用工具读清单、认领、回复、出方案、交付、交叉核对。它没有拍板的工具。</p>
+  <p><b>Claude Code</b>（在终端里执行一次；口令只填在自己电脑上，不要发到聊天里）：</p>
+  <textarea id="mcpc1" readonly style="height:64px"></textarea>
+  <p style="margin-top:12px"><b>Codex</b>（写进 <code>~/.codex/config.toml</code>）：</p>
+  <textarea id="mcpc2" readonly style="height:96px"></textarea>
+  <p style="margin-top:12px">口令：成员 / 提交码可以读写工单；agent 口令另外可以发汇总、发布；管理员口令才能拍板，不要给 agent。署名（X-FB-Name）写 agent 的名字，例如 Codex、Claude-2，会显示在工单上。</p>
+  <div class="row"><button class="btn pri" onclick="this.closest('dialog').close()">知道了</button></div></div></dialog>
 <dialog id="nrq"><form class="dlg newreq" method="dialog"><h3>新建需求</h3><p>不依附页面位置的需求，例如「重建首页生成器」。写清「怎么算做完」，负责方会照着交付、别人照着核对。</p>
   <label>标题</label><input id="nrT" maxlength="120" required>
   <label>内容（要做什么、怎么算做完）</label><textarea id="nrB" maxlength="4000" required></textarea>
@@ -176,7 +207,7 @@
     if (/markdown|ndjson/.test(r.headers.get('content-type') || '')) return r.text();
     const j = await r.json().catch(() => ({ error: '服务器没有响应（' + r.status + '）' })); if (!r.ok) throw Object.assign(new Error(j.error || '出错了'), { status: r.status }); return j; }
 
-  let ITEMS = [], role = '', VIEW = 'cards', F = { st: 'all', kind: '', who: '', page: '', q: '', asg: '' }, STATS = null, PREFS = [];
+  let ITEMS = [], role = '', VIEW = (() => { try { return localStorage.getItem('apf:view') || 'board'; } catch (e) { return 'board'; } })(), F = { st: 'all', kind: '', who: '', page: '', q: '', asg: '' }, STATS = null, PREFS = [];
   const isOpen = it => it.status !== 'done' && it.status !== 'wontfix';
   const doneAt = it => { const r = [...it.replies].reverse().find(x => (x.kind === 'decision' && x.meta && x.meta.action === 'accept') || (x.kind === 'status' && /已改好|已完成|不改/.test(x.body))); return r && r.created; };
 
@@ -189,7 +220,8 @@
   }
   async function load() { const [r, st, pf] = await Promise.all([api('items?all=1'), api('stats').catch(() => null), api('prefs').catch(() => ({ prefs: [] }))]);
     ITEMS = r.items; role = r.role; STATS = st; PREFS = pf.prefs || []; render();
-    const m = location.hash.match(/^#item-(\d+)$/); if (m) setTimeout(() => { const c = document.querySelector(`.cd[data-id="${m[1]}"]`); if (c) { c.scrollIntoView({ block: 'center' }); c.classList.add('flash'); } }, 200); }
+    const m = location.hash.match(/^#item-(\d+)$/); if (m && (VIEW === 'board' || VIEW === 'rows') && ITEMS.some(x => x.id === +m[1])) { openItem(+m[1]); return; }
+    if (m) setTimeout(() => { const c = document.querySelector(`.cd[data-id="${m[1]}"]`); if (c) { c.scrollIntoView({ block: 'center' }); c.classList.add('flash'); } }, 200); }
 
   // 每个人：提出几条、回复几条；AI：处理几条
   function people() { const P = {};
@@ -204,10 +236,11 @@
     const pages = [...new Map(its.map(it => [it.page, it.page === REQ ? '需求（不依附页面）' : it.title || it.page])).entries()], PP = people();
     const asgs = [...new Set(its.map(it => it.assignee).filter(Boolean))].sort();
     const mineQ = its.filter(it => it.status === 'question'), mineR = its.filter(it => it.status === 'review'), S = STATS || {};
-    $('#app').innerHTML = `${role === 'admin' ? `<section class="todo"><h2>我的待办 · ${mineQ.length + mineR.length} 条</h2><p>你是负责人（管理员通行码）。你在这里点的「可以做 / 选方案 / 通过 / 再改」，就是 agent 的执行信号。</p>
+    $('#app').innerHTML = `${role === 'admin' && VIEW === 'cards' ? `<section class="todo"><h2>我的待办 · ${mineQ.length + mineR.length} 条</h2><p>你是负责人（管理员通行码）。你在这里点的「可以做 / 选方案 / 通过 / 再改」，就是 agent 的执行信号。</p>
         ${mineR.length ? `<h3 class="todo-sub">待你验收 · ${mineR.length}</h3><div class="cards">${mineR.map(card).join('')}</div>` : ''}
         ${mineQ.length ? `<h3 class="todo-sub">待你决定 · ${mineQ.length}</h3><div class="cards">${mineQ.map(card).join('')}</div>` : ''}
         ${mineQ.length + mineR.length ? '' : '<p style="margin:0;color:#15803D">现在没有等你处理的任务。</p>'}</section>` : ''}
+      ${VIEW === 'board' || VIEW === 'rows' ? `<p class="mini"><b>${n}</b> 条 · 已完成 <b>${fixed.length}</b> · 等负责人 <b>${cnt('review') + cnt('question')}</b> · agent 手上 <b>${cnt('approved') + cnt('doing') + cnt('open')}</b>${S.first_pass == null ? '' : ` · 一次通过率 <b>${Math.round(S.first_pass * 100)}%</b>`}</p>` : `
       <div class="ov">
         <div><b>${n}</b><span>条任务 · ${pages.length} 个页面</span></div>
         <div><b style="color:#15803D">${fixed.length}</b><span>已完成${n ? ' · ' + Math.round(fixed.length / n * 100) + '%' : ''}</span></div>
@@ -217,24 +250,16 @@
         <div><b>${S.avg_hours != null ? dur(S.avg_hours * 3600) : avg ? dur(avg) : '—'}</b><span>从提出到完成的平均用时</span></div></div>
       <div class="stack">${Object.keys(STAT).map(k => cnt(k) ? `<i style="width:${cnt(k) / n * 100}%;background:${SCOL[k]}" title="${STAT[k]} ${cnt(k)}"></i>` : '').join('')}</div>
       <div class="legend">${Object.entries(STAT).map(([k, v]) => `<span><i style="background:${SCOL[k]}"></i>${v} ${cnt(k)}</span>`).join('')}</div>
-      <div class="people">${PP.map(([nm, p]) => `<button class="pp" data-who="${esc(nm)}" aria-pressed="${F.who === nm}">${av(nm)}<span>${esc(nm)}</span><small>${isAI(nm) ? `处理 ${p.handled.size} 条` : `提出 ${p.raised}${p.replies ? ' · 回复 ' + p.replies : ''}`}</small></button>`).join('')}</div>
-      <div class="bar"><span class="seg"><button data-v="cards" aria-pressed="${VIEW === 'cards'}">卡片</button><button data-v="tl" aria-pressed="${VIEW === 'tl'}">时间线 · 复盘</button><button data-v="pf" aria-pressed="${VIEW === 'pf'}">偏好手册 ${PREFS.length}</button></span>
+      <div class="people">${PP.map(([nm, p]) => `<button class="pp" data-who="${esc(nm)}" aria-pressed="${F.who === nm}">${av(nm)}<span>${esc(nm)}</span><small>${isAI(nm) ? `处理 ${p.handled.size} 条` : `提出 ${p.raised}${p.replies ? ' · 回复 ' + p.replies : ''}`}</small></button>`).join('')}</div>`}
+      <div class="bar"><span class="seg"><button data-v="board" aria-pressed="${VIEW === 'board'}">看板</button><button data-v="rows" aria-pressed="${VIEW === 'rows'}">按负责方</button><button data-v="cards" aria-pressed="${VIEW === 'cards'}">列表</button><button data-v="tl" aria-pressed="${VIEW === 'tl'}">时间线 · 复盘</button><button data-v="pf" aria-pressed="${VIEW === 'pf'}">偏好手册 ${PREFS.length}</button></span>
         <select id="fs"><option value="all">全部状态</option><option value="todo"${F.st === 'todo' ? ' selected' : ''}>未完成</option>${Object.entries(STAT).map(([k, v]) => `<option value="${k}"${F.st === k ? ' selected' : ''}>${v}</option>`).join('')}</select>
         <select id="fk"><option value="">全部类型</option>${Object.entries(KIND).map(([k, v]) => `<option value="${k}"${F.kind === k ? ' selected' : ''}>${v}</option>`).join('')}</select>
         <select id="fp"><option value="">全部页面</option>${pages.map(([p, t]) => `<option value="${esc(p)}"${F.page === p ? ' selected' : ''}>${esc(t)}</option>`).join('')}</select>
         <select id="fa"><option value="">全部负责方</option><option value="-"${F.asg === '-' ? ' selected' : ''}>没有负责方</option>${asgs.map(a => `<option value="${esc(a)}"${F.asg === a ? ' selected' : ''}>${esc(a)}</option>`).join('')}</select>
         <input type="search" id="fq" placeholder="搜意见、回复" value="${esc(F.q)}">
         <span class="acts"><button class="btn pri" id="nr">新建需求</button><button class="btn" id="rf">刷新</button><button class="btn" id="exc">导出打回记录</button><button class="btn" id="exr">导出复盘报告</button><button class="btn pri" id="ex">导出给 agent</button></span></div>
-      <div id="list"></div>
-      <section class="agent"><h2>agent 怎么读取和回写</h2>
-        <p>通行码放在请求头 <code>X-FB-Code</code> 里（找负责人要，不要写进代码仓库或共享文档）。完整规则见仓库里的 AGENTS.md。读取工作清单：</p>
-        <pre>curl -s -H "X-FB-Code: $FB_CODE" "${esc(new URL(API, location.href).href)}export.md"     # 或 queue.json</pre>
-        <p>只做「可以执行」里的任务；不确定的出方案（<code>items/编号/propose</code>）；改完交付报告，状态变成「待验收」，等负责人点「通过」：</p>
-        <pre>curl -s -X POST -H "X-FB-Code: $FB_CODE" -H "X-FB-Name: Claude" -H "Content-Type: application/json" \\
-  -d '{"summary":"改了什么","why":"为什么","changes":["…"],"links":[{"name":"页面","url":"…"}],"rollback":"回滚编号","before":"data:image/jpeg;base64,…","after":"data:image/jpeg;base64,…"}' \\
-  "${esc(new URL(API, location.href).href)}items/编号/report"</pre>
-        <p>截图读取：<code>files/附件编号</code>（同样带口令）；补传截图：<code>POST items/编号/shot {"shot":"data:image/jpeg;base64,…"}</code>。</p></section>`;
-    $$('.seg [data-v]').forEach(b => b.onclick = () => { VIEW = b.dataset.v; render(); });
+      <div id="list"></div>`;
+    $$('.seg [data-v]').forEach(b => b.onclick = () => { VIEW = b.dataset.v; LS.set('view', VIEW); render(); });
     $$('.pp').forEach(b => b.onclick = () => { F.who = F.who === b.dataset.who ? '' : b.dataset.who; render(); });
     $('#fs').onchange = e => { F.st = e.target.value; renderList(); }; $('#fk').onchange = e => { F.kind = e.target.value; renderList(); }; $('#fp').onchange = e => { F.page = e.target.value; renderList(); };
     $('#fq').oninput = e => { F.q = e.target.value.trim(); renderList(); }; $('#fa').onchange = e => { F.asg = e.target.value; renderList(); };
@@ -251,11 +276,59 @@
   const href = it => { if (it.page === REQ) return '#item-' + it.id; const u = it.url || it.page; return u + (u.includes('?') ? '&' : '?') + 'fbid=' + it.id; };
   function renderList() { const rows = VIEW === 'pf' ? [] : ITEMS.filter(pass), box = $('#list');
     if (!rows.length && VIEW !== 'pf') { box.innerHTML = `<div class="empty">${ITEMS.length ? '没有符合筛选条件的批注。' : '还没有批注。打开任意页面，点左下角「批注」开始。'}</div>`; return; }
-    box.innerHTML = VIEW === 'pf' ? prefsView() : VIEW === 'tl' ? timeline(rows) : cards(rows); M && M.hydrate(box); M && M.hydrate($('.todo') || document.createElement('i')); }
+    box.innerHTML = VIEW === 'pf' ? prefsView() : VIEW === 'tl' ? timeline(rows) : VIEW === 'board' ? board(rows) : VIEW === 'rows' ? byOwner(rows) : cards(rows); M && M.hydrate(box); drawer(); M && M.hydrate($('.todo') || document.createElement('i')); }
   // 负责人偏好手册：从每次「通过 / 再改 / 选方案」里总结出来的标准，agent 动手前先读
   function prefsView() { return `<section class="prefs"><p style="margin:0;color:var(--ink-2)">agent 每次动手前先读这份手册。它由 agent 根据你的决定总结，也可以直接添加；不再适用的可以停用。</p>
       <form id="pfa"><input placeholder="添加一条标准，例如：文案要短，不要星号和备注" maxlength="300"><button class="btn pri">添加</button></form>
       ${PREFS.length ? PREFS.map(p => `<div class="pf"><b>${esc(p.text)}</b>${p.item ? `<a href="#item-${p.item}" data-jump="${p.item}">来自 #${p.item}</a>` : ''}<small>${esc(p.author || '')} · ${when(p.created)}</small>${role === 'admin' ? `<button class="btn sm" data-pfoff="${p.id}">停用</button>` : ''}</div>`).join('') : '<div class="empty">还没有。agent 会在你验收、选方案时把你的标准记下来。</div>'}</section>`; }
+
+  // ---------- 看板：按状态分道；点卡片从右侧打开详情；拖到另一道 = 改状态 ----------
+  const LANES = [['open', '待分诊', 'agent 先看：明确的写打算，不明确的出方案'], ['question', '待你决定', '有方案等负责人选'], ['approved', '可以做', '负责人已同意，等负责方认领'],
+    ['doing', '处理中', '已认领，正在改'], ['review', '待你验收', '已交付，看改前改后'], ['closed', '已结束', '已完成和不改，最近的在前']];
+  const laneOf = it => it.status === 'done' || it.status === 'wontfix' ? 'closed' : it.status;
+  let OPEN = 0, LANE_CUR = '', SHOW_CLOSED = 12;
+  const titleOf = it => (it.page === REQ && it.title ? it.title + '：' : '') + String(it.body || '').replace(/^\s*【交给[^】]*】\s*/, '');
+  function bcard(it) { const shot = (it.files || []).find(f => f.kind === 'shot'), n = it.replies.filter(r => r.kind !== 'status').length;
+    return `<div class="bc${it.id === OPEN ? ' sel' : ''}" data-open="${it.id}" draggable="${matchMedia('(pointer:fine)').matches}">
+      <span class="t">${esc(titleOf(it).slice(0, 160))}</span>${shot ? `<img class="th" data-fid="${shot.id}" alt="">` : ''}
+      <span class="m"><b>#${it.id}</b>${it.assignee ? `<span class="asg">${esc(it.assignee)}</span>` : ''}${it.priority === 'high' ? '<span class="tag hi">高</span>' : ''}<span>${esc(it.author)}${it.arole === 'admin' ? '（负责人）' : ''}</span><span>${when(it.updated || it.created)}</span>${n ? `<span>💬 ${n}</span>` : ''}${it.status === 'wontfix' ? '<span>不改</span>' : ''}</span></div>`; }
+  function lanes(rows, compact) {
+    if (!LANE_CUR) LANE_CUR = ['question', 'review', 'open', 'approved', 'doing'].find(s => rows.some(it => laneOf(it) === s)) || 'open';
+    return `<div class="board">${LANES.map(([s, n, d]) => { let xs = rows.filter(it => laneOf(it) === s).sort((a, b) => s === 'closed' ? (b.updated || b.created) - (a.updated || a.created) : (({ high: 0, mid: 1, low: 2 })[a.priority] ?? 1) - (({ high: 0, mid: 1, low: 2 })[b.priority] ?? 1) || a.id - b.id);
+      if (compact && !xs.length) return ''; const all = xs.length, cut = s === 'closed' && xs.length > SHOW_CLOSED; if (cut) xs = xs.slice(0, SHOW_CLOSED);
+      return `<section class="lane${['question', 'review'].includes(s) ? ' you' : ''}${all ? '' : ' zero'}${s === LANE_CUR ? ' cur' : ''}" data-lane="${s}"><h3><i style="background:${SCOL[s === 'closed' ? 'done' : s]}"></i>${n}<span class="n">${all}</span>${['question', 'review'].includes(s) && all ? '<em>等负责人</em>' : ''}</h3><p>${d}</p>${xs.map(bcard).join('')}${cut ? `<button class="more" data-more>再看 ${Math.min(24, all - SHOW_CLOSED)} 条</button>` : ''}</section>`; }).join('')}</div>`; }
+  function board(rows) { return `<div class="lanetabs">${LANES.map(([s, n]) => `<button data-tab="${s}" aria-pressed="${s === LANE_CUR}">${n} ${rows.filter(it => laneOf(it) === s).length}</button>`).join('')}</div>${lanes(rows)}`; }
+  function byOwner(rows) { const g = new Map(); rows.forEach(it => { const k = it.assignee || ''; if (!g.has(k)) g.set(k, []); g.get(k).push(it); });
+    return `<div class="rows">${[...g.entries()].sort((a, b) => (!a[0]) - (!b[0]) || a[0].localeCompare(b[0])).map(([o, its]) => `<section class="row"><h2>${o ? av(o, 1) : ''}${esc(o || '没有负责方（由 Claude 先分诊）')}<small>${its.filter(isOpen).length} 条未完成</small></h2>${lanes(its, true)}</section>`).join('')}</div>`; }
+  function drawer() { let d = $('#drw'); if (!d) { d = document.createElement('aside'); d.id = 'drw'; d.className = 'drw'; d.innerHTML = '<div class="dh"><b></b><button title="关闭（Esc）" data-close>×</button></div><div class="dbody"></div>'; document.body.append(d); }
+    const it = OPEN && ITEMS.find(x => x.id === OPEN); d.classList.toggle('on', !!it); if (!it) return;
+    d.querySelector('.dh b').textContent = `#${it.id} · ${STAT[it.status] || it.status}`; d.querySelector('.dbody').innerHTML = card(it); M && M.hydrate(d); }
+  function openItem(id) { OPEN = id; $$('.bc.sel').forEach(x => x.classList.remove('sel')); const b = document.querySelector(`.bc[data-open="${id}"]`); if (b) b.classList.add('sel'); drawer(); try { history.replaceState(null, '', '#item-' + id); } catch (e) {} }
+  const tip = t => { let e = $('#tip'); if (!e) { e = document.createElement('div'); e.id = 'tip'; e.className = 'tip'; document.body.append(e); } e.textContent = t; e.style.display = 'block'; clearTimeout(tip.t); tip.t = setTimeout(() => e.style.display = 'none', 3200); };
+  // 拖到另一道：换成对应的「决定」或「认领」；不允许的给出原因（服务端也会再检查一次）
+  function moveRule(it, to) { const from = laneOf(it), admin = role === 'admin';
+    if (from === to) return null;
+    if (to === 'doing') return from === 'approved' ? { path: 'status', body: { status: 'doing', note: `${LS.get('name')} 处理中` } } : { err: '只有「可以做」的任务可以认领' };
+    if (to === 'review') return { err: '交付要写交付报告（改了什么、改前改后），不能直接拖' };
+    if (to === 'question') return { err: '「待你决定」要先由负责方出方案' };
+    if (!admin) return { err: '这一步是负责人的决定，要用管理员通行码登录' };
+    if (to === 'approved') return from === 'review' ? { action: 'rework', ask: '要怎么再改？（会作为下一轮修改的依据）' } : ['open', 'question'].includes(from) ? { action: 'approve' } : { err: '这张卡不能直接改成「可以做」' };
+    if (to === 'closed') return from === 'review' ? { action: 'accept' } : { action: 'wontfix', confirm: `#${it.id} 不改了？`, ask: '不改的原因（可不填）', optional: true };
+    if (to === 'open') return from === 'closed' ? { action: 'reopen' } : { err: '只有已结束的任务可以重新打开' };
+    return { err: '不能这样移动' }; }
+  async function move(id, to) { const it = ITEMS.find(x => x.id === id); if (!it) return; const r = moveRule(it, to); if (!r) return; if (r.err) return tip(r.err);
+    if (r.confirm && !confirm(r.confirm)) return; let note = '';
+    if (r.ask) { const v = prompt(r.ask, ''); if (v === null) return; if (!v.trim() && !r.optional) return; note = v.trim(); }
+    try { const j = r.path ? await api(`items/${id}/${r.path}`, r.body) : await api(`items/${id}/decide`, { action: r.action, note }); upd(j.item); STATS = await api('stats').catch(() => STATS);
+      tip(`#${id} → ${STAT[j.item.status] || j.item.status}`); } catch (er) { tip(er.message); } }
+  let DRAG = 0;
+  document.addEventListener('dragstart', e => { const b = e.target.closest && e.target.closest('.bc'); if (!b) return; DRAG = +b.dataset.open; b.classList.add('drag'); e.dataTransfer.effectAllowed = 'move'; try { e.dataTransfer.setData('text/plain', String(DRAG)); } catch (er) {} });
+  document.addEventListener('dragend', () => { DRAG = 0; $$('.bc.drag').forEach(x => x.classList.remove('drag')); $$('.lane.over, .lane.no').forEach(x => x.classList.remove('over', 'no')); });
+  document.addEventListener('dragover', e => { const l = e.target.closest && e.target.closest('.lane'); if (!l || !DRAG) return; const it = ITEMS.find(x => x.id === DRAG), r = it && moveRule(it, l.dataset.lane);
+    $$('.lane.over, .lane.no').forEach(x => x !== l && x.classList.remove('over', 'no')); if (!r) return; l.classList.toggle('over', !r.err); l.classList.toggle('no', !!r.err); e.preventDefault(); e.dataTransfer.dropEffect = 'move'; });
+  document.addEventListener('drop', e => { const l = e.target.closest && e.target.closest('.lane'); if (!l || !DRAG) return; e.preventDefault(); const id = DRAG; DRAG = 0; $$('.lane.over, .lane.no').forEach(x => x.classList.remove('over', 'no')); move(id, l.dataset.lane); });
+  document.addEventListener('dragleave', e => { const l = e.target.closest && e.target.closest('.lane'); if (l && !l.contains(e.relatedTarget)) l.classList.remove('over', 'no'); });
+  document.addEventListener('keydown', e => { if (e.key === 'Escape' && OPEN) { OPEN = 0; drawer(); $$('.bc.sel').forEach(x => x.classList.remove('sel')); } });
 
   // ---------- 卡片墙：按页面分组，左侧位置截图，右侧意见与对话 ----------
   function cards(rows) { const by = new Map(); rows.forEach(it => { if (!by.has(it.page)) by.set(it.page, []); by.get(it.page).push(it); });
@@ -311,6 +384,10 @@
   });
   document.addEventListener('paste', e => { const inp = e.target.closest && e.target.closest('.ra input[type=text]'); if (!inp) return; const fs = [...(e.clipboardData || {}).files || []].filter(f => f.type.startsWith('image/')); if (fs.length) { e.preventDefault(); addPend(inp.closest('.cd'), fs); } });
   document.addEventListener('click', async e => {
+    if (e.target.closest('[data-close]')) { OPEN = 0; drawer(); $$('.bc.sel').forEach(x => x.classList.remove('sel')); return; }
+    const tb = e.target.closest('[data-tab]'); if (tb) { LANE_CUR = tb.dataset.tab; renderList(); return; }
+    if (e.target.closest('[data-more]')) { SHOW_CLOSED += 24; renderList(); return; }
+    const bo = e.target.closest('.bc[data-open]'); if (bo) { openItem(+bo.dataset.open); return; }
     const img = e.target.closest('img[data-fid]'); if (img && img.src) { M.lightbox(img.src, img.alt); return; }
     const off = e.target.closest('[data-pfoff]'); if (off) { if (!confirm('停用这条标准？')) return; try { await api(`prefs/${off.dataset.pfoff}/off`, {}); PREFS = PREFS.filter(p => p.id !== +off.dataset.pfoff); render(); } catch (er) { alert(er.message); } return; }
     const jp = e.target.closest('[data-jump]'); if (jp) { e.preventDefault(); VIEW = 'cards'; F = { st: 'all', kind: '', who: '', page: '', q: '', asg: '' }; render(); const c = document.querySelector(`#list .cd[data-id="${jp.dataset.jump}"]`); if (c) { c.scrollIntoView({ block: 'center' }); c.classList.add('flash'); } return; }
@@ -330,6 +407,11 @@
   document.addEventListener('keydown', e => { if (e.key === 'Enter' && e.target.matches('.ra input[type=text]')) e.target.closest('.cd').querySelector('.rp').click(); });
   document.addEventListener('submit', async e => { if (e.target.id !== 'pfa') return; e.preventDefault(); const inp = e.target.querySelector('input'), t = inp.value.trim(); if (!t) return;
     try { PREFS.push((await api('prefs', { text: t })).pref); render(); } catch (er) { alert(er.message); } });
+
+  // ---------- 给 agent 接入（MCP） ----------
+  document.addEventListener('click', e => { if (!e.target.closest('#mcpb')) return; const u = new URL(API, location.href).href + 'mcp';
+    $('#mcpc1').value = `claude mcp add --transport http tasks ${u} \\\n  --header "X-FB-Code: 你的口令" --header "X-FB-Name: Claude"`;
+    $('#mcpc2').value = `[mcp_servers.tasks]\nurl = "${u}"\nhttp_headers = { "X-FB-Code" = "你的口令", "X-FB-Name" = "Codex" }`; $('#mcpd').showModal(); });
 
   // ---------- 新建需求 ----------
   document.getElementById('nrq').addEventListener('close', async () => { const d = $('#nrq'); if (d.returnValue !== 'ok') return;
