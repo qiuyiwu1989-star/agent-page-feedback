@@ -91,7 +91,7 @@
   .card .h { display: flex; gap: 6px; align-items: center; flex-wrap: wrap; font-size: 12px; color: #6b7280; }
   .card .id { font-weight: 700; color: #1f2430; cursor: pointer; }
   .tag { padding: 1px 7px; border-radius: 999px; background: #f2f3f6; color: #374151; font-size: 11.5px; }
-  .tag.hi { background: #FEE2E2; color: #B91C1C; }
+  .tag.hi { background: #FEE2E2; color: #B91C1C; } .tag.asg { background: #E0F2FE; color: #075985; }
   .st { margin-left: auto; border: 1px solid; border-radius: 999px; padding: 1px 4px 1px 8px; font-size: 11.5px; background: #fff; }
   .card .b { margin: 8px 0 0; white-space: pre-wrap; word-break: break-word; line-height: 1.65; font-size: 13.5px; }
   .card .pg { display: block; margin-top: 6px; font-size: 12px; color: #1D4ED8; text-decoration: none; word-break: break-all; }
@@ -304,7 +304,7 @@
     setTimeout(() => media.then(() => M() && M().hydrate(list)), 0);
     list.innerHTML = shown.length ? shown.map(card).join('') : `<div class="empty">${scope === 'page' ? '这一页还没有' + (filt === 'todo' ? '未完成的' : '') + '批注。<br>点左下角「批注」，再点页面上要改的地方。' : '还没有批注。'}</div>`; }
   function card(it) { const here = it.page === page, loc = here ? locate(it) : null;
-    return `<div class="card${it.id === cur ? ' cur' : ''}" data-id="${it.id}"><div class="h"><span class="id" title="在页面上定位">#${it.id}</span><span class="tag${it.kind === 'bug' ? ' hi' : ''}">${KIND[it.kind] || ''}</span>${it.priority === 'high' ? '<span class="tag hi">优先级高</span>' : it.priority === 'low' ? '<span class="tag">优先级低</span>' : ''}<span>${esc(it.author)}${it.arole === 'admin' ? '<b class="owner">负责人</b>' : ''} · ${ago(it.created)}</span>
+    return `<div class="card${it.id === cur ? ' cur' : ''}" data-id="${it.id}"><div class="h"><span class="id" title="在页面上定位">#${it.id}</span><span class="tag${it.kind === 'bug' ? ' hi' : ''}">${KIND[it.kind] || ''}</span>${it.priority === 'high' ? '<span class="tag hi">优先级高</span>' : it.priority === 'low' ? '<span class="tag">优先级低</span>' : ''}<span>${esc(it.author)}${it.arole === 'admin' ? '<b class="owner">负责人</b>' : ''} · ${ago(it.created)}</span>${it.assignee ? `<span class="tag asg">负责方 ${esc(it.assignee)}</span>` : ''}
       <span class="stag" style="background:${SCOL[it.status] || '#6B7280'}">${STAT[it.status] || it.status}</span></div>
       ${scope === 'all' ? `<a class="pg" href="${esc(linkOf(it))}">${esc(it.title || it.page)}</a>` : ''}
       ${(it.files || []).length ? `<div class="shots">${it.files.map(f => `<img data-fid="${f.id}" class="${f.kind === 'shot' ? 'big' : ''}" alt="${f.kind === 'shot' ? '批注位置截图' : '附图'}" title="${f.kind === 'shot' ? '批注位置截图' : '附图'} · 点击放大">`).join('')}</div>` : ''}
@@ -315,6 +315,7 @@
   // 一条回复：普通回复 / 状态变化 / 负责人决定 / agent 方案 / agent 交付报告
   function repHTML(x, it) {
     const who = `<i>${esc(x.author)}${x.role === 'admin' ? '（负责人）' : ''}：</i>`, m = x.meta || {}, imgs = fs => fs.length ? `<div class="shots">${fs.map(f => `<img data-fid="${f.id}" alt="附图">`).join('')}</div>` : '';
+    if (x.kind === 'check') return `<div class="rep ai">${who}<div class="box"><h5>交叉核对 · ${m.result === 'pass' ? '核对通过' : m.result === 'fail' ? '发现问题' : '意见'}（供负责人参考）</h5><p>${esc(x.body)}</p>${imgs(x.files || [])}</div></div>`;
     if (x.kind === 'proposal') return `<div class="rep ai">${who}<div class="box"><h5>方案 · 请负责人选择</h5><p>${esc(x.body)}</p>${(m.options || []).map(o => `<span class="opt"><b>方案 ${esc(o.key)}</b>${esc(o.title)}${o.desc ? '：' + esc(o.desc) : ''}${o.link ? ` <a href="${esc(o.link)}" target="_blank" rel="noopener">预览 ↗</a>` : ''}${role === 'admin' && it.status === 'question' ? `<button class="btn" data-dec="choose" data-opt="${esc(o.key)}">选 ${esc(o.key)}</button>` : ''}</span>`).join('')}${imgs(x.files || [])}</div></div>`;
     if (x.kind === 'report') { const fb = k => (x.files || []).find(f => f.kind === k), b = fb('before'), a = fb('after'), rest = (x.files || []).filter(f => f.kind === 'image');
       return `<div class="rep ai">${who}<div class="box"><h5>交付报告 · 待负责人验收</h5><p>${esc(x.body)}</p>${m.why ? `<p style="color:#6b7280">原因：${esc(m.why)}</p>` : ''}${(m.changes || []).length ? `<ul>${m.changes.map(c => `<li>${esc(c)}</li>`).join('')}</ul>` : ''}

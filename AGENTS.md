@@ -39,6 +39,19 @@ curl -s -H "X-FB-Code: $FB_CODE" "${FB_API}queue.json"    # 同样内容的 JSON
 ### 1. 先读「负责人偏好手册」
 清单最前面的偏好手册是负责人过去的决定总结出的标准（例如「不要星号和备注」「文案要短」）。动手前先读，避免返工。
 
+### 负责方：只做自己的
+每张工单可以有「负责方」（`assignee`）：Claude、Codex、某位老师……
+- **只处理负责方是自己、或者没有负责方的工单**；别人的跳过（定时任务用 `FB_FOR=Claude,-`，Codex 用 `FB_FOR=Codex`）：
+  `GET queue.json?for=Codex`、`GET export.md?for=Claude,-`。
+- 给别人开工单（例如发现要改生成器源码，交给 Codex）：`POST items {page: "_requests", title, body, assignee: "Codex"}`，正文写清「怎么算做完」。也可以在任务中心点「新建需求」。
+- 正文第一行写「【交给 X】」的旧写法会自动识别成负责方 X。
+- agent 之间的委托也要负责人点「可以做」才开工（负责人已确认过的清单，工单里会注明）。
+
+### 交叉核对
+一个 agent 交付后，另一个 agent 按「怎么算做完」逐条核对，结果写进工单：
+`POST items/<编号>/check {"body": "逐条核对的结果", "result": "pass" 或 "fail"}`（或 `python3 tools/fb.py crosscheck 编号 pass "……"`）。
+只给负责人参考，不改状态，不算验收。
+
 ### 认领：先改「处理中」再动手
 一个项目可能有几个 agent（定时任务、别的会话）。开始处理某条之前，先把它改成「处理中」并署名，别人看到「处理中」就跳过：
 ```bash
@@ -85,7 +98,7 @@ curl -s -X POST -H "X-FB-Code: $FB_CODE" -H "X-FB-Name: Claude" -H "Content-Type
 每天 10:00–23:00 每小时跑一轮，完整说明和指令模板见 [docs/autopilot.md](docs/autopilot.md)。要点：
 - 用 agent 口令（`FB_AGENT_CODE`）：能发布、回滚、发汇总，不能拍板。云端环境里口令由网络代理加到请求头 `X-FB-Key`，不要读取或打印。
 - 先 `python3 tools/fb.py check`：没有要做的事就结束，不打扰；
-- 一次最多处理约 8 条；处理前先认领（改「处理中」）；
+- 一次最多处理约 8 条；只处理负责方是自己或为空的（`FB_FOR=Claude,-`）；处理前先认领（改「处理中」）；
 - 发布：网站是 git 仓库时 `python3 tools/fb.py deploy --ref 提交号 --item 编号`；直接在服务器上改文件的网站用 `fb.py fetch` 取文件、改完 `fb.py deploy --dir 工作目录 --item 编号`（有冲突检查，只备份动到的文件）。回滚编号写「deploy#发布编号」；
 - 最后 `python3 tools/fb.py digest` 发汇总到负责人的飞书群（飞书地址只在服务器上）；
 - 先用「演练」模式跑 1–2 天，负责人同意后再正式。
@@ -105,7 +118,7 @@ curl -s -X POST -H "X-FB-Code: $FB_CODE" -H "X-FB-Name: Claude" -H "Content-Type
 | 方法 | 路径 | 作用 |
 |---|---|---|
 | GET | `ping` | 检查通行码，返回角色 team / agent / admin |
-| GET | `export.md` / `queue.json` | 工作清单（偏好手册 + 可以执行 / 待分诊 / 等负责人） |
+| GET | `export.md` / `queue.json` | 工作清单（偏好手册 + 可以执行 / 待分诊 / 等负责人）；`?for=Codex` 只看负责方是它的，`?for=Claude,-` 含没有负责方的 |
 | GET | `items?all=1` / `items?page=页面标识` | 任务列表（含回复、决定、方案、交付报告和附件） |
 | GET | `stats` | 各状态数量、一次通过率、平均交付用时、返工次数 |
 | GET | `files/<id>` | 附件 |
@@ -114,7 +127,9 @@ curl -s -X POST -H "X-FB-Code: $FB_CODE" -H "X-FB-Name: Claude" -H "Content-Type
 | POST | `items/<id>/propose` | 出方案 `{summary, options, images}` → 待决定 |
 | POST | `items/<id>/report` | 交付报告 `{summary, why, changes, links, rollback, before, after, images}` → 待验收 |
 | POST | `items/<id>/decide` | 负责人的决定（只限管理员通行码）`{action, option, note}` |
-| POST | `items/<id>/status` | 直接改状态 `{status, note}`（一般用不到） |
+| POST | `items/<id>/status` | 直接改状态 `{status, note}`（认领时改「处理中」） |
+| POST | `items/<id>/assign` | 改负责方 `{assignee, note}`（提出人或负责人） |
+| POST | `items/<id>/check` | 交叉核对 `{body, result: pass / fail}`，不算验收 |
 | POST | `items/<id>/shot` | 补传或替换位置截图 |
 | POST | `items/<id>/delete` | 删除（作者或管理员） |
 | GET / POST | `prefs`、`prefs/<id>/off` | 负责人偏好手册 |

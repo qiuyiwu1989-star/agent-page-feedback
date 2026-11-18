@@ -60,7 +60,12 @@
   GET  deploys / deploys/<id>    发布登记（编号、谁、哪些任务、版本、状态、输出末尾）
   POST deploys/<id>/rollback     把整个网站恢复到第 <id> 次发布之前（只限 agent / 管理员口令；会新登记一次 rollback）
   GET  stats                     统计：各状态数量、一次通过率、平均交付用时、返工次数
-  POST items/<id>/edit           改内容（作者或管理员）{body, kind, priority}
+  POST items/<id>/edit           改内容（作者或管理员）{body, kind, priority, assignee}
+  POST items/<id>/assign         改负责方（作者或管理员）{assignee, note}；assignee 为空表示没有负责方
+  POST items/<id>/check          交叉核对（另一个 agent 按「怎么算做完」核对交付）{body, result: pass / fail}；只给负责人参考，不算拍板
+  负责方 assignee：谁来做（Claude / Codex / 某位老师）。新建时可以指定；正文第一行写「【交给 X】」也会自动识别。
+  queue.json、export.md 支持 ?for=Codex 只看负责方是它的；for=Claude,- 表示负责方是 Claude 或没有负责方的。
+  不依附页面的需求：page 用 _requests（任务中心「新建需求」）。
   POST items/<id>/delete         删除（作者或管理员；软删除）
   POST items/<id>/shot           补传或替换批注位置截图 {shot}
   GET  files/<id>                读取附件（PNG / JPEG / WebP / GIF，按文件内容判断类型）
@@ -152,8 +157,23 @@ def init():
         c.executescript('''CREATE TABLE IF NOT EXISTS prefs (id INTEGER PRIMARY KEY AUTOINCREMENT, text TEXT NOT NULL, item INTEGER, author TEXT, created REAL, active INTEGER DEFAULT 1);''')
         # 旧库升级：缺的列补上（v1 → v2）
         for t, col, typ in (('items', 'url', 'TEXT'), ('items', 'arole', 'TEXT'), ('items', 'signal', 'TEXT'), ('items', 'signal_note', 'TEXT'),
-                            ('items', 'signal_by', 'TEXT'), ('items', 'signal_at', 'REAL'), ('replies', 'role', 'TEXT'), ('replies', 'meta', 'TEXT'), ('items', 'marks', 'TEXT')):
+                            ('items', 'signal_by', 'TEXT'), ('items', 'signal_at', 'REAL'), ('replies', 'role', 'TEXT'), ('replies', 'meta', 'TEXT'), ('items', 'marks', 'TEXT'),
+                            ('items', 'assignee', 'TEXT')):
             if col not in [r[1] for r in c.execute(f'PRAGMA table_info({t})')]: c.execute(f'ALTER TABLE {t} ADD COLUMN {col} {typ}')
+        # 过渡写法：正文第一行「【交给 X】」→ 负责方 X
+        for r in c.execute("SELECT id, body FROM items WHERE assignee IS NULL AND body LIKE '%【交给%'").fetchall():
+            a = assignee_in(r['body'])
+            if a: c.execute('UPDATE items SET assignee=? WHERE id=?', (a, r['id']))
+
+REQUESTS = '_requests'   # 不依附页面的需求
+def assignee_in(body):
+    m = re.match(r'\s*【交给\s*([^】\n]{1,30}?)\s*】', body or '')
+    return m.group(1).strip() if m else None
+
+def for_match(r, fors):
+    """?for=Codex：负责方是 Codex；for=Claude,-：负责方是 Claude 或没有负责方。"""
+    a = (r.get('assignee') or '').strip().lower()
+    return any((f == '-' and not a) or (f and f != '-' and a == f) for f in fors)
 
 def clip(v, n):
     v = '' if v is None else str(v)
@@ -250,16 +270,17 @@ class H(BaseHTTPRequestHandler):
                     d = self.body(); txt = clip(d.get('body'), 4000).strip(); page = clip(d.get('page'), 300).strip()
                     if not txt or not page: return self.send(400, {'error': '请写下意见'})
                     now = time.time()
-                    cur = c.execute('INSERT INTO items (page,url,title,selector,quote,rx,ry,px,py,vw,vh,device,kind,priority,body,author,cid,status,created,updated,arole,marks) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)',
+                    asg = clip(d.get('assignee'), 40).strip() or assignee_in(txt)
+                    cur = c.execute('INSERT INTO items (page,url,title,selector,quote,rx,ry,px,py,vw,vh,device,kind,priority,body,author,cid,status,created,updated,arole,marks,assignee) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)',
                         (page, clip(d.get('url'), 1000), clip(d.get('title'), 200), clip(d.get('selector'), 600), clip(d.get('quote'), 400), num(d.get('rx')), num(d.get('ry')), num(d.get('px')), num(d.get('py')),
                          int(num(d.get('vw'))), int(num(d.get('vh'))), clip(d.get('device'), 20), d.get('kind') if d.get('kind') in KINDS else 'suggest',
-                         d.get('priority') if d.get('priority') in PRIOS else 'mid', txt, name, cid, 'open', now, now, role, clean_marks(d.get('marks'))))
+                         d.get('priority') if d.get('priority') in PRIOS else 'mid', txt, name, cid, 'open', now, now, role, clean_marks(d.get('marks')), asg or None))
                     if d.get('shot'): save_files(c, cur.lastrowid, None, 'shot', [d['shot']], name, MAX_SHOT)
                     save_files(c, cur.lastrowid, None, 'image', d.get('images'), name, MAX_IMG)
                     r = c.execute('SELECT * FROM items WHERE id=?', (cur.lastrowid,)).fetchone(); out = row_item(c, r); out['mine'] = True
-                    notify('新批注', out, name, txt, quote=d.get('quote'))
+                    notify('新需求' if page == REQUESTS else '新批注', out, name, txt, quote=d.get('quote'))
                     return self.send(200, {'item': out})
-                m = re.fullmatch(r'items/(\d+)/(reply|status|edit|delete|shot|decide|propose|report)', p)
+                m = re.fullmatch(r'items/(\d+)/(reply|status|edit|delete|shot|decide|propose|report|assign|check)', p)
                 if method == 'POST' and m:
                     iid, act = int(m.group(1)), m.group(2); r = c.execute('SELECT * FROM items WHERE id=? AND deleted=0', (iid,)).fetchone()
                     if not r: return self.send(404, {'error': '这条批注不存在'})
@@ -314,6 +335,18 @@ class H(BaseHTTPRequestHandler):
                         if not (own or role == 'admin'): return self.send(403, {'error': '只能改自己写的批注'})
                         txt = clip(d.get('body'), 4000).strip() or r['body']
                         c.execute('UPDATE items SET body=?, kind=?, priority=?, updated=? WHERE id=?', (txt, d.get('kind') if d.get('kind') in KINDS else r['kind'], d.get('priority') if d.get('priority') in PRIOS else r['priority'], now, iid))
+                        if 'assignee' in d: act = 'assign'
+                    if act == 'assign':
+                        if not (own or role == 'admin'): return self.send(403, {'error': '只有提出人或负责人可以改负责方'})
+                        asg = clip(d.get('assignee'), 40).strip() or None
+                        if asg != r['assignee']:
+                            c.execute('UPDATE items SET assignee=?, updated=? WHERE id=?', (asg, now, iid)); note = clip(d.get('note'), 500).strip()
+                            add_reply(c, iid, name, cid, role, (f'把负责方改为「{asg}」' if asg else '去掉了负责方') + (f'：{note}' if note else ''), 'status', {'assignee': asg}, now)
+                    elif act == 'check':
+                        txt = clip(d.get('body'), 4000).strip(); res = d.get('result') if d.get('result') in ('pass', 'fail') else 'note'
+                        if not txt: return self.send(400, {'error': '请写核对结果'})
+                        rid = add_reply(c, iid, name, cid, role, txt, 'check', {'result': res}, now)
+                        save_files(c, iid, rid, 'image', d.get('images'), name, MAX_IMG)
                     elif act == 'delete':
                         if not (own or role == 'admin'): return self.send(403, {'error': '只能删除自己写的批注'})
                         c.execute('UPDATE items SET deleted=1, updated=? WHERE id=?', (now, iid))
@@ -336,6 +369,7 @@ class H(BaseHTTPRequestHandler):
                     c.execute('UPDATE prefs SET active=0 WHERE id=?', (int(pm.group(1)),)); return self.send(200, {'ok': True})
                 if method == 'GET' and p == 'queue.json':
                     rows = [row_item(c, r) for r in c.execute("SELECT * FROM items WHERE deleted=0 AND status NOT IN ('done','wontfix') ORDER BY id")]
+                    if qs.get('for'): fors = [f.strip().lower() for f in qs['for'].split(',')]; rows = [r for r in rows if for_match(r, fors)]
                     g = lambda *ss: [r for r in rows if r['status'] in ss]
                     for r in rows: r['triaged'] = triaged(r)
                     act, tri = g('approved', 'doing'), g('open')
@@ -374,6 +408,7 @@ class H(BaseHTTPRequestHandler):
                 if method == 'GET' and p == 'export.md':
                     st = (qs.get('status') or 'approved,doing,open,question,review').split(',')
                     rows = [row_item(c, r) for r in c.execute('SELECT * FROM items WHERE deleted=0 AND status IN (%s) ORDER BY page, id' % ','.join('?' * len(st)), st)]
+                    if qs.get('for'): fors = [f.strip().lower() for f in qs['for'].split(',')]; rows = [r for r in rows if for_match(r, fors)]
                     prefs = [r['text'] for r in c.execute('SELECT text FROM prefs WHERE active=1 ORDER BY id')]
                     return self.send(200, raw=export_md(rows, st, prefs).encode(), ctype='text/markdown; charset=utf-8')
         except ValueError as e:
@@ -463,6 +498,7 @@ class H(BaseHTTPRequestHandler):
     def do_POST(self): self.route('POST')
 
 def page_url(r):
+    if r.get('page') == REQUESTS: return r.get('url') or ''
     return r.get('url') or (SITE + r['page'] if SITE else r['page'])
 
 def notify(what, item, who, text, quote=None, force=False):
@@ -474,13 +510,14 @@ def notify(what, item, who, text, quote=None, force=False):
     title = f'{what} · #{item["id"]} {item.get("title") or item["page"]}'
     lines = [f'**{who}**：{(text or "（无说明）")[:600]}']
     if quote: lines.append(f'位置：「{clip(quote, 60)}」')
-    lines += [f'页面：{page}', f'状态：{STATUSES.get(item["status"], item["status"])}']
+    if item.get('assignee'): lines.append(f'负责方：{item["assignee"]}')
+    lines += [f'页面：{page}' if page else '需求（不依附页面）', f'状态：{STATUSES.get(item["status"], item["status"])}']
     if item['status'] in ('question', 'review'): lines.append('**需要负责人：** ' + ('选一个方案，或回复意见' if item['status'] == 'question' else '看交付报告，点「通过」或「再改」'))
-    btns = [{'tag': 'button', 'text': {'tag': 'plain_text', 'content': '在页面上看'}, 'url': deep, 'type': 'primary'}]
+    btns = [{'tag': 'button', 'text': {'tag': 'plain_text', 'content': '在页面上看'}, 'url': deep, 'type': 'primary'}] if page.startswith('http') else []
     if summary: btns.append({'tag': 'button', 'text': {'tag': 'plain_text', 'content': '任务汇总'}, 'url': summary + f'#item-{item["id"]}', 'type': 'default'})
-    tpl = {'新批注': 'orange', '交付报告 · 待你验收': 'green', '方案待你决定': 'purple', '负责人的决定': 'red'}.get(what, 'blue')
+    tpl = {'新批注': 'orange', '新需求': 'orange', '交付报告 · 待你验收': 'green', '方案待你决定': 'purple', '负责人的决定': 'red'}.get(what, 'blue')
     payload = ({'msg_type': 'interactive', 'card': {'config': {'wide_screen_mode': True}, 'header': {'title': {'tag': 'plain_text', 'content': title}, 'template': tpl},
-                'elements': [{'tag': 'markdown', 'content': '\n'.join(lines)}] + ([{'tag': 'action', 'actions': btns}] if deep.startswith('http') else [])}}
+                'elements': [{'tag': 'markdown', 'content': '\n'.join(lines)}] + ([{'tag': 'action', 'actions': [b for b in btns if b['url'].startswith('http')]}] if any(b['url'].startswith('http') for b in btns) else [])}}
                if NOTIFY_KIND == 'feishu' else {'event': what, 'title': title, 'who': who, 'text': text, 'item': {k: item.get(k) for k in ('id', 'page', 'url', 'title', 'status', 'kind', 'priority', 'author', 'body')}})
     push(payload)
 
@@ -558,9 +595,9 @@ def export_md(rows, st, prefs=()):
         if not rs: continue
         out += [f'## {gname} · {len(rs)} 条', '']
         for r in sorted(rs, key=lambda r: (order.get(r['priority'], 1), r['id'])):
-            out.append(f'### #{r["id"]} [{STATUSES.get(r["status"], r["status"])} · {KINDS.get(r["kind"], r["kind"])} · 优先级{PRIOS.get(r["priority"], "中")}] {r["author"]}{"（负责人）" if r.get("arole") == "admin" else ""} {ts(r["created"])}')
+            out.append(f'### #{r["id"]} [{STATUSES.get(r["status"], r["status"])} · {KINDS.get(r["kind"], r["kind"])} · 优先级{PRIOS.get(r["priority"], "中")}{" · 负责方 " + r["assignee"] if r.get("assignee") else ""}] {r["author"]}{"（负责人）" if r.get("arole") == "admin" else ""} {ts(r["created"])}')
             if r.get('signal'): out.append(f'- **负责人信号：{ACTIONS.get(r["signal"], (r["signal"],))[0]}**' + (f'（{r["signal_note"]}）' if r.get('signal_note') else '') + f' · {r.get("signal_by") or ""}')
-            out.append(f'- 页面：{page_url(r)}')
+            out.append(f'- 页面：{page_url(r)}' if r['page'] != REQUESTS else '- 需求（不依附页面）' + (f'：{r["url"]}' if r.get('url') else ''))
             if r['quote']: out.append(f'- 位置：「{r["quote"]}」')
             out.append(f'- 定位：`{r["selector"] or "（页面整体）"}`　屏幕 {r["vw"]}×{r["vh"]}（{r["device"] or "桌面"}）')
             mk = r.get('marks') or []; reg = [m for m in mk if m['t'] == 'region']; drawn = [m for m in mk if m['t'] != 'region']
@@ -569,7 +606,7 @@ def export_md(rows, st, prefs=()):
             if r.get('files'): out.append('- 附件（读取需口令）：' + '、'.join(f'{"截图" if f["kind"] == "shot" else "图片"} {PREFIX}files/{f["id"]}' for f in r['files']))
             out += ['', r['body'], '']
             for x in r['replies']:
-                tag = {'decision': '【决定】', 'proposal': '【方案】', 'report': '【交付】', 'status': ''}.get(x['kind'], '')
+                tag = {'decision': '【决定】', 'proposal': '【方案】', 'report': '【交付】', 'status': '', 'check': '【核对' + {'pass': '通过', 'fail': '有问题'}.get((x.get('meta') or {}).get('result'), '') + '】'}.get(x['kind'], '')
                 out.append(f'- {x["author"]}{"（负责人）" if x.get("role") == "admin" else ""}（{ts(x["created"])}）：{tag}{x["body"]}')
                 if x['kind'] == 'proposal' and x.get('meta'):
                     for o in x['meta'].get('options', []): out.append(f'  - 方案 {o["key"]}：{o["title"]} {o["desc"]} {o["link"]}'.rstrip())

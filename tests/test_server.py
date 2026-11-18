@@ -55,7 +55,8 @@ class ServerTest(unittest.TestCase):
 
     def new_item(self, **kw):
         d = dict(page='docs/index.html', url='https://example.com/docs/index.html', title='文档首页', selector='#hero h1', quote='欢迎', body='标题太小', kind='style', priority='high')
-        d.update(kw); st, b, _ = self.req('items', d); self.assertEqual(st, 200, b); return json.loads(b)['item']
+        who = {k: kw.pop(k) for k in ('name', 'cid', 'code') if k in kw}
+        d.update(kw); st, b, _ = self.req('items', d, **who); self.assertEqual(st, 200, b); return json.loads(b)['item']
 
     def test_auth(self):
         self.assertEqual(self.req('ping', code='wrong')[0], 401)
@@ -159,6 +160,28 @@ class ServerTest(unittest.TestCase):
             time.sleep(.05)
         self.fail('发布没有结束')
 
+    def test_assignee_and_check(self):
+        """负责方：字段或「【交给 X】」；queue.json?for= 只看自己的；改负责方要提出人或负责人；交叉核对不算拍板。"""
+        a = self.new_item(body='【交给 Codex】重建首页生成器', page='_requests', url='', title='需求', name='Claude', cid='claude')
+        b = self.new_item(body='按钮颜色', assignee='向为老师')
+        c = self.new_item(body='没有负责方')
+        self.assertEqual((a['assignee'], b['assignee'], c['assignee']), ('Codex', '向为老师', None))
+        q = lambda f: {x['id'] for k in ('act', 'triage', 'waiting', 'review') for x in json.loads(self.req('queue.json?for=' + urllib.request.quote(f))[1])[k]}
+        self.assertIn(a['id'], q('Codex')); self.assertNotIn(c['id'], q('Codex')); self.assertNotIn(b['id'], q('Codex'))
+        self.assertIn(c['id'], q('Claude,-')); self.assertNotIn(a['id'], q('Claude,-'))
+        self.assertIn(a['id'], q('codex'))                                        # 不分大小写
+        md = self.req('export.md?for=Codex')[1].decode(); self.assertIn('负责方 Codex', md); self.assertIn('需求（不依附页面）', md); self.assertNotIn('按钮颜色', md)
+        # 改负责方
+        self.assertEqual(self.req(f'items/{a["id"]}/assign', {'assignee': 'Claude'}, cid='someone')[0], 403)
+        it = json.loads(self.req(f'items/{a["id"]}/assign', {'assignee': 'Claude', 'note': '生成器先不动'}, code='admin-code', name='负责人')[1])['item']
+        self.assertEqual(it['assignee'], 'Claude'); self.assertIn('把负责方改为「Claude」', it['replies'][-1]['body'])
+        # 交叉核对
+        st0 = it['status']
+        it = json.loads(self.req(f'items/{a["id"]}/check', {'body': '按「怎么算做完」逐条核对，第 2 条没做到', 'result': 'fail'}, name='Codex', cid='codex')[1])['item']
+        self.assertEqual(it['replies'][-1]['kind'], 'check'); self.assertEqual(it['replies'][-1]['meta']['result'], 'fail'); self.assertEqual(it['status'], st0)
+        self.assertEqual(self.req(f'items/{a["id"]}/check', {'body': ''}, name='Codex')[0], 400)
+        self.assertIn('【核对有问题】', self.req('export.md')[1].decode())
+
     def test_marks(self):
         """框选区域和截图上的圈画：存下来，清单里告诉 agent；乱七八糟的输入被丢掉。"""
         marks = [{'t': 'region', 'x': 100, 'y': 2400.4, 'w': 600, 'h': 320}, {'t': 'pen', 'x': .1, 'y': .2, 'w': .3, 'h': .1}, {'t': 'evil', 'x': 1}, 'junk']
@@ -176,7 +199,8 @@ class ServerTest(unittest.TestCase):
           rx REAL, ry REAL, px REAL, py REAL, vw INTEGER, vh INTEGER, device TEXT, kind TEXT, priority TEXT, body TEXT NOT NULL,
           author TEXT, cid TEXT, status TEXT DEFAULT 'open', created REAL, updated REAL, deleted INTEGER DEFAULT 0);
           CREATE TABLE replies (id INTEGER PRIMARY KEY AUTOINCREMENT, item INTEGER NOT NULL, author TEXT, cid TEXT, body TEXT, kind TEXT DEFAULT 'reply', created REAL);
-          INSERT INTO items (page, body, author, status, created, updated) VALUES ('index.html', '旧批注', '王五', 'open', 1, 1);''')
+          INSERT INTO items (page, body, author, status, created, updated) VALUES ('index.html', '旧批注', '王五', 'open', 1, 1);
+          INSERT INTO items (page, body, author, status, created, updated) VALUES ('handoff', '【交给 Codex】重建生成器', 'Claude', 'open', 2, 2);''')
         c.commit(); c.close()
         port = free_port(); env = dict(os.environ, FB_TEAM_CODE='t', FB_DB=db, FB_PORT=str(port))
         p = subprocess.Popen([sys.executable, '-I', os.path.join(ROOT, 'server', 'fb_server.py')], env=env, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
@@ -186,6 +210,7 @@ class ServerTest(unittest.TestCase):
                     with urllib.request.urlopen(urllib.request.Request(f'http://127.0.0.1:{port}/api/fb/queue.json', headers={'X-FB-Code': 't'}), timeout=1) as r: q = json.loads(r.read()); break
                 except Exception: time.sleep(.1)
             self.assertEqual(q['triage'][0]['body'], '旧批注'); self.assertEqual(q['triage'][0]['marks'], [])
+            self.assertEqual(q['triage'][1]['assignee'], 'Codex')                 # 过渡写法自动识别成负责方
         finally: p.terminate(); p.wait(5)
 
     def test_agent_enroll(self):

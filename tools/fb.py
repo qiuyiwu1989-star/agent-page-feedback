@@ -5,12 +5,15 @@
   FB_KEY   agent 口令（FB_AGENT_CODE）。在 Claude Code 云端环境里，口令存在环境的密钥里、由网络代理自动加到请求头
            X-FB-Key 上，这时不用设置 FB_KEY（这里会发一个占位值，代理会替换）。也可以用 FB_CODE（成员口令，但不能发布、发汇总）
   FB_NAME  署名，默认 Claude
+  FB_FOR   只看哪些负责方的工单，例如 Claude,-（Claude 或没有负责方）、Codex。不设就看全部
   FB_SITE_URL  网站根地址（按文件发布时用来取文件），例如 https://example.com/site/
 
 用法：
   python3 tools/fb.py check                     看本轮有没有要做的事：有 → 退出码 0 并打印数量；没有 → 退出码 10
   python3 tools/fb.py md                        工作清单（Markdown）
   python3 tools/fb.py queue                     工作清单（JSON）
+  python3 tools/fb.py crosscheck 编号 pass|fail "核对结果"   交叉核对别人的交付（只给负责人参考，不算验收）
+  python3 tools/fb.py assign 编号 负责方                      改负责方（提出人或负责人）
   python3 tools/fb.py reply 编号 "内容"
   python3 tools/fb.py propose 编号 方案.json    {"summary": "...", "options": [{"key": "A", "title": "...", "desc": "...", "link": "..."}]}
   python3 tools/fb.py pref "一句话标准" [--item 编号]
@@ -29,6 +32,8 @@ import argparse, base64, hashlib, io, json, os, sys, tarfile, time, urllib.error
 API = os.environ.get('FB_API', '').rstrip('/') + '/'
 KEY = os.environ.get('FB_KEY') or os.environ.get('FB_CODE') or 'injected-by-proxy'
 NAME = os.environ.get('FB_NAME', 'Claude')
+FOR = os.environ.get('FB_FOR', '').strip()
+Q = ('?for=' + urllib.parse.quote(FOR)) if FOR else ''
 
 
 def call(path, body=None, raw=False):
@@ -118,6 +123,8 @@ def main():
     ap = argparse.ArgumentParser(description='agent-page-feedback 命令行'); sub = ap.add_subparsers(dest='cmd', required=True)
     for c in ('check', 'md', 'queue', 'deploys'): sub.add_parser(c)
     p = sub.add_parser('reply'); p.add_argument('item', type=int); p.add_argument('text')
+    p = sub.add_parser('crosscheck'); p.add_argument('item', type=int); p.add_argument('result', choices=['pass', 'fail', 'note']); p.add_argument('text')
+    p = sub.add_parser('assign'); p.add_argument('item', type=int); p.add_argument('assignee', nargs='?', default='')
     p = sub.add_parser('propose'); p.add_argument('item', type=int); p.add_argument('file')
     p = sub.add_parser('pref'); p.add_argument('text'); p.add_argument('--item', type=int)
     p = sub.add_parser('digest'); p.add_argument('title'); p.add_argument('file'); p.add_argument('--button', action='append', default=[])
@@ -128,10 +135,12 @@ def main():
     a = ap.parse_args()
 
     if a.cmd == 'check':
-        s = call('queue.json')['summary']; todo = s['act'] + s['triage_new']
+        s = call('queue.json' + Q)['summary']; todo = s['act'] + s['triage_new']
         print(json.dumps(s, ensure_ascii=False)); sys.exit(0 if todo else 10)
-    if a.cmd == 'md': print(call('export.md', raw=True)); return
-    if a.cmd == 'queue': print(json.dumps(call('queue.json'), ensure_ascii=False, indent=1)); return
+    if a.cmd == 'md': print(call('export.md' + Q, raw=True)); return
+    if a.cmd == 'queue': print(json.dumps(call('queue.json' + Q), ensure_ascii=False, indent=1)); return
+    if a.cmd == 'crosscheck': call(f'items/{a.item}/check', {'body': a.text, 'result': a.result}); print(f'已核对 #{a.item}（{a.result}）'); return
+    if a.cmd == 'assign': it = call(f'items/{a.item}/assign', {'assignee': a.assignee})['item']; print(f'#{a.item} 负责方：{it.get("assignee") or "（没有）"}'); return
     if a.cmd == 'deploys':
         for d in call('deploys')['deploys'][:20]:
             print(f'#{d["id"]} {d["action"]} {d["status"]} ref={d["ref"] or "-"} 任务={d["items"]} {d["author"]} {time.strftime("%m-%d %H:%M", time.localtime(d["created"]))} {d["note"] or ""}')
