@@ -17,7 +17,8 @@ deploy-map.json 的写法（键是源文件里的路径，值是网站路径；n
   也支持结构化写法（和别的发布脚本共用一份时更清楚）：
   {"files": {"ui21.css": "ui21/ui21.css", ...},
    "dirs": {"plan/syllabi/": {"to": "plan/syllabi/", "match": "*.json", "recursive": false}, ...},
-   "keep_if_exists": {"course-media.js": {"to": "course-media.js"}}}   以网站上的为准的文件：agent 不改，交给人
+   "keep_if_exists": {"course-media.js": {"to": "course-media.js"}},   以网站上的为准的文件：agent 不改，交给人
+   "remove_on_site": ["vendor/old.js"]}                                只在网站上、要删掉的文件：只能删除（--delete），不能改
   没列出的一律不发布。
 
 agent 一律用网站路径（例如 ui21/ui21.css）。发布包（tools/fb.py deploy --dir 生成）是 tar.gz：
@@ -108,14 +109,21 @@ def source_of(site_rel, m):
     return site_rel if site_of(site_rel, m) == site_rel else None
 
 
+def removable(site_rel, m):
+    return bool(SRC and isinstance(m, dict) and site_rel in (m.get('remove_on_site') or []))
+
+
 def targets(site_rel, m):
     """一个网站路径要写的位置：[(标签, 绝对路径)]，有源文件时先源文件后网站。"""
+    if removable(site_rel, m): return [('网站', under(ROOT, site_rel))]     # 只在网站上、等着删的文件
     s = source_of(site_rel, m)
     if s is None:
-        raise SystemExit(f'{site_rel} 不是从源文件发布的（可能是生成器产出的页面）。请改覆盖层（例如 ui21/ui21.js、ui21/ui21.css），或者登记给维护生成器的人。')
+        raise SystemExit(f'{site_rel} 不是从源文件发布的（可能是生成器产出的页面）。请改覆盖层（例如 ui21/ui21.js、ui21/ui21.css），或者登记给维护生成器的人；'
+                         '如果它是没人用的旧文件、要删掉，先把它加进 deploy-map.json 的 remove_on_site。')
     live = under(ROOT, site_rel)
     if s and not os.path.exists(under(SRC, s)) and os.path.exists(live):
-        raise SystemExit(f'{site_rel} 在网站上有、在源文件里没有（可能是生成器产出的页面）。请改覆盖层（例如 ui21/ui21.js、ui21/ui21.css），或者登记给维护生成器的人。')
+        raise SystemExit(f'{site_rel} 在网站上有、在源文件里没有（可能是生成器产出的页面）。请改覆盖层（例如 ui21/ui21.js、ui21/ui21.css），或者登记给维护生成器的人；'
+                         '如果它是没人用的旧文件、要删掉，先把它加进 deploy-map.json 的 remove_on_site。')
     return ([('源文件', under(SRC, s))] if s else []) + [('网站', live)]
 
 
@@ -183,6 +191,7 @@ def deploy():
     bases = {rel: x.get('base') for rel, x in man.get('files', {}).items()}; bases.update(man.get('delete', {}))
     stale, drift, changes = [], [], {}
     for rel, data in new.items():
+        if removable(rel, m) and data is not None: raise SystemExit(f'{rel} 在 remove_on_site 里，只能删除，不能修改')
         tg = targets(rel, m)
         if sha(tg[0][1]) != bases[rel]: stale.append(rel)
         if len(tg) == 2 and sha(tg[1][1]) != sha(tg[0][1]): drift.append(rel)

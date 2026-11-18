@@ -105,6 +105,7 @@ class SourceModeTest(DeployFilesTest):
             json.dump({'version': 1, 'files': {'ui21.css': 'ui21/ui21.css', 'plan.html': 'plan.html'},
                        'dirs': {'plan/syllabi/': {'to': 'plan/syllabi/', 'match': '*.json', 'recursive': False}},
                        'keep_if_exists': {'course-media.js': {'to': 'course-media.js', 'why': '可能直接在服务器上填过'}},
+                       'remove_on_site': ['old/legacy.js'],
                        'not_deployed': {'build_*.py': '脚本'}}, f)
         cls.web = ThreadingHTTPServer(('127.0.0.1', 0), functools.partial(Quiet, directory=cls.site)); threading.Thread(target=cls.web.serve_forever, daemon=True).start()
         cls.port = free_port()
@@ -140,6 +141,15 @@ class SourceModeTest(DeployFilesTest):
         code, out = self.fb('deploy', '--dir', w4); self.assertEqual(code, 0, out); self.assertEqual(self.src_text('plan/syllabi/CS1.json'), '{}'); self.assertEqual(self.get('plan/syllabi/CS1.json'), '{}')
         code, out = self.fb('fetch', w4, 'plan/syllabi/x.txt'); self.assertNotEqual(code, 0)
         self.put('course-media.js', 'x'); code, out = self.fb('fetch', w4, 'course-media.js'); self.assertNotEqual(code, 0); self.assertIn('以网站上的为准', out)
+        # 只在网站上的旧文件：在 remove_on_site 里的可以删、可以撤销；不在的拒绝；不能改
+        os.makedirs(os.path.join(self.site, 'old'), exist_ok=True); self.put('old/legacy.js', 'old()'); self.put('old/other.js', 'x')
+        w5 = os.path.join(self.tmp.name, 's5'); self.assertEqual(self.fb('fetch', w5, 'old/legacy.js')[0], 0)
+        code, out = self.fb('fetch', w5, 'old/other.js'); self.assertNotEqual(code, 0); self.assertIn('remove_on_site', out)
+        self.edit(w5, 'old/legacy.js', 'changed()'); code, out = self.fb('deploy', '--dir', w5); self.assertNotEqual(code, 0); self.assertIn('只能删除', out)
+        os.remove(os.path.join(w5, 'old/legacy.js'))
+        code, out = self.fb('deploy', '--dir', w5, '--delete', 'old/legacy.js'); self.assertEqual(code, 0, out); self.assertIsNone(self.get('old/legacy.js'))
+        d5 = int(out.rsplit('deploy#', 1)[1].split()[0])
+        code, out = self.fb('rollback', str(d5)); self.assertEqual(code, 0, out); self.assertEqual(self.get('old/legacy.js'), 'old()')
         # 回滚：源文件和网站都恢复
         code, out = self.fb('rollback', str(d1)); self.assertEqual(code, 0, out)
         self.assertEqual(self.src_text('ui21.css'), 'h1{}'); self.assertEqual(self.get('ui21/ui21.css'), 'h1{}')
