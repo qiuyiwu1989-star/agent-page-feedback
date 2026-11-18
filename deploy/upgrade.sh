@@ -20,7 +20,8 @@ say() { printf '\n== %s\n' "$*"; }
 [ -n "$SVC" ] || { echo "用法：sudo bash deploy/upgrade.sh 服务名"; systemctl list-units --type=service --all --no-legend | grep -i -E 'feedback|fb' || true; exit 2; }
 [ "$(id -u)" = 0 ] || { echo "请用 sudo 运行"; exit 2; }
 
-say "1. 找到服务 $SVC"
+NEWVER="$(grep -m1 "^VERSION = " "$NEW/server/fb_server.py" | cut -d"'" -f2)"
+say "1. 找到服务 $SVC（要装的版本：${NEWVER:-未知}）"
 UNIT="$(systemctl cat "$SVC" 2>/dev/null)" || { echo "没有这个服务：$SVC"; exit 2; }
 EXEC="$(printf '%s\n' "$UNIT" | sed -n 's/^ExecStart=//p' | tail -1)"
 SERVER_FILE="$(printf '%s\n' "$EXEC" | tr ' ' '\n' | grep -m1 'fb_server\.py$' || true)"
@@ -99,7 +100,7 @@ PY
     install -m 644 "$BK/fb_server.py" "$SERVER_FILE"; rm -rf "$CLIENT_DIR"; cp -a "$BK/client" "$CLIENT_DIR"; [ -f "$BK/env" ] && cp -a "$BK/env" "$ENVF"
     systemctl restart "$SVC"; journalctl -u "$SVC" -n 30 --no-pager; echo "已恢复到升级前。"; exit 1
   fi
-  echo "升级成功：服务在运行，口令可用，任务清单正常。"
+  echo "升级成功：服务在运行，口令可用，任务清单正常。现在的版本：$(printf '%s' "$r" | python3 -c 'import json,sys; print(json.load(sys.stdin).get("version", "未知"))' 2>/dev/null)"
   printf '%s' "$q" | python3 -c 'import json,sys; s=json.load(sys.stdin)["summary"]; print("当前任务：可以执行 %d · 待分诊（新）%d · 待决定 %d · 待验收 %d" % (s["act"], s["triage_new"], s["waiting"], s["review"]))'
 fi
 

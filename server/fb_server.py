@@ -39,7 +39,7 @@
 署名为 Claude / Codex 等 agent 名称时，汇总页显示为 AI。
 
 接口（都在 {PREFIX} 下，除 client/ 外都要口令）：
-  GET  ping                      检查口令，返回 {ok, role}
+  GET  ping                      检查口令，返回 {ok, role, version}
   GET  items?page=&status=&all=1 列表（含回复与附件）
   POST items                     新建批注 {page, url, title, selector, quote, rx, ry, px, py, vw, vh, device, kind, priority, body, shot, images, marks}
                                  marks：[{t: region, x, y, w, h}]（页面上框选的区域，页面像素）和 [{t: pen / rect, x, y, w, h}]（在截图上画的，按截图宽高的比例）
@@ -85,6 +85,7 @@ from collections import defaultdict, deque
 from http.server import ThreadingHTTPServer, BaseHTTPRequestHandler
 from urllib.parse import urlparse, parse_qs, unquote
 
+VERSION = '3.0.0'   # 改版本时同时改 CHANGELOG.md
 HERE = os.path.dirname(os.path.abspath(__file__))
 DB = os.environ.get('FB_DB', os.path.join(HERE, '..', 'data', 'fb.db'))
 PORT = int(os.environ.get('FB_PORT', '18810'))
@@ -220,7 +221,7 @@ def limited(bucket, ip, n, win):
     q.append(now); return False
 
 class H(BaseHTTPRequestHandler):
-    server_version = 'agent-page-feedback/2'
+    server_version = 'agent-page-feedback/' + VERSION
     def log_message(self, fmt, *a): pass
 
     def ip(self): return self.headers.get('X-Real-IP') or self.headers.get('X-Forwarded-For', '').split(',')[0].strip() or self.client_address[0]
@@ -262,7 +263,7 @@ class H(BaseHTTPRequestHandler):
         if method == 'POST' and limited(WRITES, ip, 120, 60): return self.send(429, {'error': '操作太频繁，稍等一下'})
         try:
             with LOCK, db() as c:
-                if method == 'GET' and p == 'ping': return self.send(200, {'ok': True, 'role': role})
+                if method == 'GET' and p == 'ping': return self.send(200, {'ok': True, 'role': role, 'version': VERSION})
                 if method == 'GET' and p == 'items':
                     sql, a = 'SELECT * FROM items WHERE deleted=0', []
                     if qs.get('page') and not qs.get('all'): sql += ' AND page=?'; a.append(qs['page'])
@@ -661,7 +662,7 @@ def mcp_handle(h, m, role, ip):
         who = unquote(h.headers.get('X-FB-Name', '')) or '（没署名）'
         live = f'\n\n## 你现在的身份\n署名：{who}；口令角色：{ {"admin": "负责人（可以拍板）", "agent": "agent（可以发布、发汇总，不能拍板）", "team": "成员 / 提交码（不能拍板）"}.get(role, role)}。'
         if SITE: live += f'\n网站：{SITE}；任务中心：{SUMMARY_URL or (SITE.rstrip("/") + PREFIX + "client/feedback.html")}'
-        return ok({'protocolVersion': ver, 'capabilities': {'tools': {}}, 'serverInfo': {'name': 'agent-page-feedback', 'version': '2.1'}, 'instructions': MCP_GUIDE + live})
+        return ok({'protocolVersion': ver, 'capabilities': {'tools': {}}, 'serverInfo': {'name': 'agent-page-feedback', 'version': VERSION}, 'instructions': MCP_GUIDE + live})
     if meth == 'ping': return ok({})
     if meth == 'tools/list': return ok({'tools': MCP_TOOLS})
     if meth == 'prompts/list': return ok({'prompts': []})
