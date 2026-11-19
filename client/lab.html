@@ -94,7 +94,7 @@ dialog::backdrop{background:rgba(28,26,23,.45)}
   <label>插画名</label><input name="title" placeholder="人与 AI，各执一笔" required>
   <label>要什么（给负责人看）</label><textarea name="body" required placeholder="画什么、表达什么"></textarea>
   <div class="two"><div><label>比例</label><select name="ratio"><option>4:5</option><option>1:1</option><option>4:3</option><option>3:4</option><option>16:9</option><option>3:2</option><option>2:3</option></select></div>
-    <div><label>底色</label><select name="bg"><option>缃</option><option>赭</option><option>豆青</option><option>天青</option><option>藕荷</option><option>檀</option><option>月白</option><option>绢</option></select></div></div>
+    <div><label>底色</label><select name="bg"><optgroup label="深档"><option>赭</option><option>豆青</option><option>天青</option><option>藕荷</option><option>檀</option><option>橙</option></optgroup><optgroup label="浅档"><option>缃</option><option>赭浅</option><option>豆青浅</option><option>天青浅</option><option>藕荷浅</option><option>檀浅</option></optgroup></select></div></div>
   <label>提示词（给画图的 agent 看）</label><textarea name="prompt"></textarea>
   <label>交给谁</label><input name="assignee" value="Codex">
   <div class="err" id="newe"></div>
@@ -106,7 +106,9 @@ dialog::backdrop{background:rgba(28,26,23,.45)}
   const $ = s => document.querySelector(s), esc = s => String(s == null ? '' : s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
   const LS = { get: k => { try { return localStorage.getItem('apf:' + k) || ''; } catch (e) { return ''; } }, set: (k, v) => { try { v ? localStorage.setItem('apf:' + k, v) : localStorage.removeItem('apf:' + k); } catch (e) {} } };
   if (!LS.get('cid')) LS.set('cid', Math.random().toString(36).slice(2) + Date.now().toString(36));
-  const BG = { '缃': 'var(--xian)', '赭': 'var(--zhe)', '豆青': 'var(--douqing)', '天青': 'var(--tianqing)', '藕荷': 'var(--ouhe)', '檀': 'var(--tan)', '月白': 'var(--yuebai)', '绢': 'var(--juan)' };
+  // 设计规范 1.2：插画底色分深、浅两档；浅档只给卡片里的插画格；月白太接近纸色，退出
+  const BG = { '缃': 'var(--xian)', '赭': 'var(--zhe)', '豆青': 'var(--douqing)', '天青': 'var(--tianqing)', '藕荷': 'var(--ouhe)', '檀': 'var(--tan)', '橙': 'var(--cheng)',
+    '赭浅': '#E3C0AD', '豆青浅': '#C9CDB9', '天青浅': '#D0D7D7', '藕荷浅': '#D5CDD7', '檀浅': '#DEC7B0', '月白': 'var(--yuebai)', '绢': 'var(--juan)' };
   const RATIO = { '1:1': '1/1', '4:3': '4/3', '3:4': '3/4', '4:5': '4/5', '16:9': '16/9', '3:2': '3/2', '2:3': '2/3' };
   const RNAME = { '1:1': '方形', '4:3': '横幅', '3:4': '竖幅', '4:5': '竖幅', '16:9': '宽幅', '3:2': '横幅', '2:3': '竖幅' };
   async function api(path, body) {
