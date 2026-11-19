@@ -155,7 +155,7 @@ flowchart LR
 
 ## 版本
 
-当前版本 **3.1.0**，每个版本改了什么见 [CHANGELOG.md](CHANGELOG.md)。
+当前版本 **3.2.0**，每个版本改了什么见 [CHANGELOG.md](CHANGELOG.md)。
 
 ## 目录
 

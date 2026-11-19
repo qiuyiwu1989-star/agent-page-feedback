@@ -9,6 +9,7 @@
   FB_SITE_URL  网站根地址（按文件发布时用来取文件），例如 https://example.com/site/
 
 用法：
+  python3 tools/fb.py inbox                     收件箱：@ 我的、交给我的；python3 tools/fb.py read 编号... 标已读
   python3 tools/fb.py check                     看本轮有没有要做的事：有 → 退出码 0 并打印数量；没有 → 退出码 10
   python3 tools/fb.py md                        工作清单（Markdown）
   python3 tools/fb.py queue                     工作清单（JSON）
@@ -121,7 +122,8 @@ def wait(did):
 
 def main():
     ap = argparse.ArgumentParser(description='agent-page-feedback 命令行'); sub = ap.add_subparsers(dest='cmd', required=True)
-    for c in ('check', 'md', 'queue', 'deploys'): sub.add_parser(c)
+    for c in ('check', 'md', 'queue', 'deploys', 'inbox'): sub.add_parser(c)
+    p = sub.add_parser('read'); p.add_argument('items', type=int, nargs='+')
     p = sub.add_parser('reply'); p.add_argument('item', type=int); p.add_argument('text')
     p = sub.add_parser('crosscheck'); p.add_argument('item', type=int); p.add_argument('result', choices=['pass', 'fail', 'note']); p.add_argument('text')
     p = sub.add_parser('assign'); p.add_argument('item', type=int); p.add_argument('assignee', nargs='?', default='')
@@ -135,9 +137,14 @@ def main():
     a = ap.parse_args()
 
     if a.cmd == 'check':
-        s = call('queue.json' + Q)['summary']; todo = s['act'] + s['triage_new']
+        s = call('queue.json' + Q)['summary']; todo = s['act'] + s['triage_new'] + s.get('mentioned', 0)
         print(json.dumps(s, ensure_ascii=False)); sys.exit(0 if todo else 10)
     if a.cmd == 'md': print(call('export.md' + Q, raw=True)); return
+    if a.cmd == 'inbox':
+        for x in call('inbox')['items']:
+            print(f'#{x["item"]} {"" if x.get("read", False) else "●"}{ {"mention": "@我", "todo": "交给我", "decide": "等决定", "accept": "等验收"}[x["type"]]} {x.get("by", "")} {x["title"][:30]}：{x["text"][:80]}')
+        return
+    if a.cmd == 'read': print('已读 %d 条' % call('inbox/read', {'items': a.items})['read']); return
     if a.cmd == 'queue': print(json.dumps(call('queue.json' + Q), ensure_ascii=False, indent=1)); return
     if a.cmd == 'crosscheck': call(f'items/{a.item}/check', {'body': a.text, 'result': a.result}); print(f'已核对 #{a.item}（{a.result}）'); return
     if a.cmd == 'assign': it = call(f'items/{a.item}/assign', {'assignee': a.assignee})['item']; print(f'#{a.item} 负责方：{it.get("assignee") or "（没有）"}'); return

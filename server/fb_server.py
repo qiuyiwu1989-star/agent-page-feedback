@@ -78,6 +78,9 @@
                                  （choice 的取值可以按项目改，见 CHOICES）
   POST mcp                       MCP 服务（Streamable HTTP，JSON-RPC）：agent 连上就拿到协作规则（像 skill 一样）和工具（读清单、认领、回复、出方案、
                                  交付、交叉核对、开需求……；没有拍板工具）。口令同样放在请求头 X-FB-Code / X-FB-Key，署名 X-FB-Name
+  GET  inbox?for=名字            收件箱（默认是自己的署名）：@ 我的（@Codex 也算 @ 到 Codex-1 等实例）、交给我且可以做的、负责人要决定 / 验收的
+  POST inbox/read                标已读 {ids: [提及编号], items: [工单编号], all: true}；只能标自己的
+  正文、回复、方案、交付、核对里的 @名字 会进对方的收件箱；queue.json?for= 里多一组 mentioned（@ 到它、还没读的）
   GET  presence                  在场：最近来过的人和 agent（署名、角色、最后一次操作、正在做的工单、是否可能卡住）
   GET  activity?limit=80         全局动态：所有工单上的新建、回复、决定、方案、交付、核对、认领，按时间倒序
   GET  client/<file>             前端文件（不要口令）
@@ -87,7 +90,7 @@ from collections import defaultdict, deque
 from http.server import ThreadingHTTPServer, BaseHTTPRequestHandler
 from urllib.parse import urlparse, parse_qs, unquote
 
-VERSION = '3.1.0'   # 改版本时同时改 CHANGELOG.md
+VERSION = '3.2.0'   # 改版本时同时改 CHANGELOG.md
 HERE = os.path.dirname(os.path.abspath(__file__))
 DB = os.environ.get('FB_DB', os.path.join(HERE, '..', 'data', 'fb.db'))
 PORT = int(os.environ.get('FB_PORT', '18810'))
@@ -158,6 +161,8 @@ def init():
         CREATE TABLE IF NOT EXISTS deploys (id INTEGER PRIMARY KEY AUTOINCREMENT, action TEXT, ref TEXT, items TEXT, note TEXT, rollback_of INTEGER,
           author TEXT, status TEXT, output TEXT, created REAL, finished REAL);''')
         c.execute('CREATE TABLE IF NOT EXISTS agent_keys (hash TEXT PRIMARY KEY, enroll TEXT, created REAL)')
+        c.execute('CREATE TABLE IF NOT EXISTS mentions (id INTEGER PRIMARY KEY AUTOINCREMENT, item INTEGER, reply INTEGER, name TEXT, by TEXT, created REAL, read_at REAL)')
+        c.execute('CREATE INDEX IF NOT EXISTS ix_mentions_name ON mentions(name)')
         AGENT_HASHES.update(r[0] for r in c.execute('SELECT hash FROM agent_keys'))
         # 服务重启时还在跑的发布，结果不明
         c.execute("UPDATE deploys SET status='unknown', finished=? WHERE status='running'", (time.time(),))
@@ -211,8 +216,45 @@ def clean_marks(v):
 def is_ai(name): return (name or '').strip().lower() in AI_NAMES
 
 def add_reply(c, iid, name, cid, role, body, kind, meta=None, now=None):
-    return c.execute('INSERT INTO replies (item,author,cid,body,kind,created,role,meta) VALUES (?,?,?,?,?,?,?,?)',
-                     (iid, name, cid, body, kind, now or time.time(), role, json.dumps(meta, ensure_ascii=False) if meta else None)).lastrowid
+    rid = c.execute('INSERT INTO replies (item,author,cid,body,kind,created,role,meta) VALUES (?,?,?,?,?,?,?,?)',
+                    (iid, name, cid, body, kind, now or time.time(), role, json.dumps(meta, ensure_ascii=False) if meta else None)).lastrowid
+    if kind != 'status': add_mentions(c, iid, rid, body, name, now)
+    return rid
+
+MENTION = re.compile(r'(?<![\w@.])@([\w\u4e00-\u9fff][\w\u4e00-\u9fff.-]{0,23})')
+def mentioned(text):
+    """正文里的 @名字（去掉末尾标点；同一个名字只算一次）。"""
+    out = []
+    for m in MENTION.findall(text or ''):
+        n = m.rstrip('.-')
+        if n and n not in out: out.append(n)
+    return out[:10]
+
+def add_mentions(c, iid, rid, text, by, now=None):
+    for n in mentioned(text):
+        if n.lower() != (by or '').lower(): c.execute('INSERT INTO mentions (item,reply,name,by,created) VALUES (?,?,?,?,?)', (iid, rid, n, by, now or time.time()))
+
+def name_hits(target, name):
+    """@Codex 也算 @ 到 Codex-1、Codex-2（同一类 agent 的各个实例）。"""
+    t, n = (target or '').lower(), (name or '').lower()
+    return bool(n) and (t == n or t.startswith(n + '-'))
+
+def inbox(c, who, role):
+    """收件箱：@ 我的（未读在前）、交给我且可以做的、负责人要决定 / 验收的。"""
+    if not who: return {'who': who, 'items': [], 'unread': 0}
+    out, seen_ids = [], set()
+    for r in c.execute('SELECT m.*, i.title, i.body AS ibody, i.status FROM mentions m JOIN items i ON i.id=m.item WHERE i.deleted=0 ORDER BY m.read_at IS NOT NULL, m.id DESC LIMIT 300'):
+        if not name_hits(who, r['name']): continue
+        rb = c.execute('SELECT body, kind FROM replies WHERE id=?', (r['reply'],)).fetchone() if r['reply'] else None
+        out.append({'type': 'mention', 'id': r['id'], 'item': r['item'], 'by': r['by'], 'created': r['created'], 'read': bool(r['read_at']),
+                    'title': r['title'] or (r['ibody'] or '')[:40], 'status': r['status'], 'text': ((rb['body'] if rb else r['ibody']) or '')[:200]})
+    for it in c.execute("SELECT id, title, body, status, assignee, signal, signal_note, updated FROM items WHERE deleted=0 AND status IN ('approved','question','review') ORDER BY updated DESC"):
+        if it['status'] == 'approved' and it['assignee'] and name_hits(who, it['assignee']):
+            out.append({'type': 'todo', 'item': it['id'], 'created': it['updated'], 'title': it['title'] or (it['body'] or '')[:40], 'status': it['status'],
+                        'text': '负责人：' + ({'approve': '可以做', 'choose': '选方案', 'rework': '再改', 'revert': '改回来'}.get(it['signal'], it['signal'] or '可以做')) + (f'（{it["signal_note"]}）' if it['signal_note'] else '')})
+        elif role == 'admin' and it['status'] in ('question', 'review'):
+            out.append({'type': 'decide' if it['status'] == 'question' else 'accept', 'item': it['id'], 'created': it['updated'], 'title': it['title'] or (it['body'] or '')[:40], 'status': it['status'], 'text': '等你决定' if it['status'] == 'question' else '等你验收'})
+    return {'who': who, 'items': out[:200], 'unread': sum(1 for x in out if x['type'] == 'mention' and not x['read']) + sum(1 for x in out if x['type'] != 'mention')}
 
 # 简单限流：每个 IP 每分钟最多 120 次写入（确认页有「本组一键确认」）；口令错误每 IP 每 10 分钟最多 10 次
 WRITES = defaultdict(deque); FAILS = defaultdict(deque)
@@ -284,6 +326,7 @@ class H(BaseHTTPRequestHandler):
                         (page, clip(d.get('url'), 1000), clip(d.get('title'), 200), clip(d.get('selector'), 600), clip(d.get('quote'), 400), num(d.get('rx')), num(d.get('ry')), num(d.get('px')), num(d.get('py')),
                          int(num(d.get('vw'))), int(num(d.get('vh'))), clip(d.get('device'), 20), d.get('kind') if d.get('kind') in KINDS else 'suggest',
                          d.get('priority') if d.get('priority') in PRIOS else 'mid', txt, name, cid, 'open', now, now, role, clean_marks(d.get('marks')), asg or None))
+                    add_mentions(c, cur.lastrowid, None, txt, name, now)
                     if d.get('shot'): save_files(c, cur.lastrowid, None, 'shot', [d['shot']], name, MAX_SHOT)
                     save_files(c, cur.lastrowid, None, 'image', d.get('images'), name, MAX_IMG)
                     r = c.execute('SELECT * FROM items WHERE id=?', (cur.lastrowid,)).fetchone(); out = row_item(c, r); out['mine'] = True
@@ -390,14 +433,30 @@ class H(BaseHTTPRequestHandler):
                     g = lambda *ss: [r for r in rows if r['status'] in ss]
                     for r in rows: r['triaged'] = triaged(r)
                     act, tri = g('approved', 'doing'), g('open')
+                    ment = []
+                    if qs.get('for'):
+                        fs = [f for f in fors if f != '-']
+                        for r in c.execute('SELECT m.id, m.item, m.by, m.name, m.reply, m.created FROM mentions m JOIN items i ON i.id=m.item WHERE i.deleted=0 AND m.read_at IS NULL ORDER BY m.id'):
+                            if any(name_hits(f, r['name']) for f in fs):
+                                rb = c.execute('SELECT body FROM replies WHERE id=?', (r['reply'],)).fetchone() if r['reply'] else None
+                                ment.append({'mention': r['id'], 'item': r['item'], 'by': r['by'], 'name': r['name'], 'text': ((rb['body'] if rb else '') or '')[:400], 'created': r['created']})
                     return self.send(200, {'generated': time.strftime('%Y-%m-%d %H:%M'), 'prefs': [r['text'] for r in c.execute('SELECT text FROM prefs WHERE active=1 ORDER BY id')],
-                                           'summary': {'act': len(act), 'triage_new': sum(1 for r in tri if not r['triaged']), 'waiting': len(g('question')), 'review': len(g('review'))},
+                                           'summary': {'act': len(act), 'triage_new': sum(1 for r in tri if not r['triaged']), 'waiting': len(g('question')), 'review': len(g('review')), 'mentioned': len(ment)}, 'mentioned': ment,
                                            'act': act, 'triage': tri, 'waiting': g('question'), 'review': g('review')})
                 if p in ('digest', 'digests', 'deploy', 'site-file') or p.startswith('deploys'):
                     return self.ops(c, method, p, role, name)
                 if method == 'GET' and p == 'corrections.jsonl':
                     return self.send(200, raw=corrections(c).encode(), ctype='application/x-ndjson; charset=utf-8')
                 if method == 'GET' and p == 'presence': return self.send(200, presence(c))
+                if method == 'GET' and p == 'inbox':
+                    who = (qs.get('for') or (name if name != '匿名' else '')).strip()
+                    return self.send(200, inbox(c, who, role if who == name else 'team'))   # 看别人的收件箱时不带「负责人要决定」那部分
+                if method == 'POST' and p == 'inbox/read':
+                    d = self.body(); ids = [int(num(x)) for x in (d.get('ids') or [])[:200]]; items = [int(num(x)) for x in (d.get('items') or [])[:200]]; n = 0
+                    for r in c.execute('SELECT id, name, item FROM mentions WHERE read_at IS NULL').fetchall():
+                        if name_hits(name, r['name']) and (r['id'] in ids or r['item'] in items or d.get('all')):
+                            c.execute('UPDATE mentions SET read_at=? WHERE id=?', (time.time(), r['id'])); n += 1
+                    return self.send(200, {'ok': True, 'read': n})
                 if method == 'GET' and p == 'activity': return self.send(200, {'events': activity(c, int(num(qs.get('limit')) or 80))})
                 if method == 'GET' and p == 'stats':
                     return self.send(200, stats(c))
@@ -624,11 +683,12 @@ MCP_GUIDE = """你连上的是一个「页面上的 AI 工单系统」（agent-p
 6. 改完不要自己标「已完成」：用 report 交付报告（改了什么、为什么、对照「怎么算做完」的逐条验证、改前 / 改后、回滚编号），状态变成「待验收」，等负责人点「通过」。
 7. 不明确、需要取舍的，用 propose 出两三个方案（能做预览就附预览链接），状态变成「待决定」。
 8. 别人交付后，可以用 crosscheck 按「怎么算做完」逐条核对；只给负责人参考，不算验收。
-9. 负责人「再改」「选 A 不选 B」背后有通用标准，就用 add_preference 记一句（写清适用范围）。
-10. 口令、密钥、机器人地址不写进代码、提交、页面、文档和消息。
+9. 看收件箱（inbox）：有人 @ 你，就在那张工单里回答（不确定的说不确定），然后 mark_read。别人的活不要因为被 @ 就去做，除非它交给了你。
+10. 负责人「再改」「选 A 不选 B」背后有通用标准，就用 add_preference 记一句（写清适用范围）。
+11. 口令、密钥、机器人地址不写进代码、提交、页面、文档和消息。
 
 ## 一轮工作的顺序
-briefing → 处理「可以执行」（认领 → 修改 → 发布 → report）→ 分诊「待分诊」（明确的 reply 写打算、请负责人点「可以做」；不明确的 propose）→ 核对别人的交付 → send_digest 发一份汇总（做了什么、等谁、需要负责人决定什么）。
+briefing → 看收件箱、回答 @ 你的 → 处理「可以执行」（认领 → 修改 → 发布 → report）→ 分诊「待分诊」（明确的 reply 写打算、请负责人点「可以做」；不明确的 propose）→ 核对别人的交付 → send_digest 发一份汇总（做了什么、等谁、需要负责人决定什么）。
 没有要做的事就结束，不发消息。
 
 ## 发布网站文件
@@ -641,6 +701,8 @@ MCP_TOOLS = [
     _t('briefing', '开工前先调：负责人偏好手册 + 工作清单（可以执行 / 待分诊 / 等负责人），带页面、定位、截图地址和讨论记录。', {'for': {**_S, 'description': '只看哪些负责方，例如 "Codex" 或 "Claude,-"（- 表示没有负责方）'}}),
     _t('list_tasks', '任务队列（JSON）：act 可以执行、triage 待分诊（triaged=true 表示已经回复过、在等负责人）、waiting 待决定、review 待验收。', {'for': _S}),
     _t('get_task', '一张工单的全部内容：正文、负责方、状态、负责人信号、回复、方案、交付报告、核对、附件编号。', {'id': _I}, ['id']),
+    _t('inbox', '你的收件箱：有人 @ 你的（未读在前）、交给你且可以做的。有人 @ 你，就在那张工单里回复，然后 mark_read。'),
+    _t('mark_read', '把收件箱里 @ 你的条目标为已读（按工单编号）。', {'items': {'type': 'array', 'items': _I}}, ['items']),
     _t('corrections', '打回记录：负责人每次「再改」「改回来」的原话，连同任务和当时的交付。'),
     _t('claim', '认领：把工单改成「处理中」并署名（开工前必须先认领）。', {'id': _I, 'note': {**_S, 'description': '例如「Codex 处理中」'}}, ['id']),
     _t('reply', '在工单里回复（普通讨论，不改状态）。', {'id': _I, 'body': _S}, ['id', 'body']),
@@ -684,6 +746,8 @@ def mcp_call(h, name, a):
         it = next((x for x in json.loads(t)['items'] if x['id'] == iid), None)
         return (True, json.dumps(it, ensure_ascii=False)) if it else (False, '{"error": "没有这张工单"}')
     if name == 'corrections': return _loop(h, 'corrections.jsonl')
+    if name == 'inbox': return _loop(h, 'inbox')
+    if name == 'mark_read': return _loop(h, 'inbox/read', {'items': a.get('items') or []})
     if name == 'claim': return _loop(h, f'items/{iid}/status', {'status': 'doing', 'note': a.get('note') or (unquote(h.headers.get('X-FB-Name', '')) + ' 处理中')})
     if name == 'reply': return _loop(h, f'items/{iid}/reply', {'body': a.get('body', '')})
     if name == 'propose': return _loop(h, f'items/{iid}/propose', {'summary': a.get('summary', ''), 'options': a.get('options') or []})

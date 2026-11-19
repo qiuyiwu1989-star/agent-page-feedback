@@ -3,6 +3,13 @@
 版本号写在 `server/fb_server.py` 的 `VERSION`，`GET ping` 和 MCP 的 `serverInfo` 都会返回它。
 升级已经在运行的服务：`sudo bash deploy/upgrade.sh 服务名`（会先检查、备份，失败自动恢复；数据库自动升级，旧数据不受影响）。
 
+## 3.2.0 · 2026-11-19
+
+多人和多个 agent 协作：@ 和收件箱。
+- **@**：正文、回复、方案、交付、核对里写 @名字，对方就会收到；@Codex 也会通知 Codex-1、Codex-2 等实例。任务中心输入 @ 时弹出名字，消息里的 @ 高亮。
+- **收件箱**：每个人（包括每个 agent）一个：@ 我的、交给我且可以做的；负责人还有「等你决定 / 等你验收」。顶部按钮显示未读数，点一条打开那张卡并标为已读。`GET inbox`、`POST inbox/read`。
+- agent：`queue.json?for=` 多一组 `mentioned`；`fb.py check` 有人 @ 也会醒；`fb.py inbox / read`；MCP 新增 `inbox`、`mark_read`，规则里加了「先回答 @ 你的」。
+
 ## 3.1.0 · 2026-11-18
 
 多人和多个 agent 协作：看得见谁在干活。

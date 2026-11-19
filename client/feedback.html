@@ -35,6 +35,14 @@
   .bc .last { grid-column: 1 / -1; font-size: 12px; color: var(--ink-2); background: var(--sunken); border-radius: 8px; padding: 4px 8px; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; word-break: break-word; }
   .bc .last b { color: var(--ink); font-weight: 600; } .bc .sig { grid-column: 1 / -1; font-size: 12px; color: #9A3412; }
   .rows .row > h2 .st { font-size: 12.5px; font-weight: 400; color: var(--ink-2); }
+  .inb { position: absolute; right: 0; top: 40px; height: 36px; padding: 0 14px; border-radius: 99px; border: 1px solid var(--line); background: var(--surface); cursor: pointer; font-size: 14px; }
+  .inb b { display: inline-grid; place-items: center; min-width: 20px; height: 20px; padding: 0 6px; border-radius: 10px; background: #DC2626; color: #fff; font-size: 12px; margin-left: 4px; } .inb b.z { background: var(--sunken); color: var(--ink-3); }
+  .hero { position: relative; }
+  .inbl { display: grid; gap: 6px; max-height: 60vh; overflow: auto; } .ib { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; gap: 10px; align-items: start; text-align: left; border: 1px solid var(--line); background: var(--surface); border-radius: 12px; padding: 10px 12px; cursor: pointer; font-size: 13.5px; }
+  .ib.new { border-color: #FCA5A5; background: #FEF2F2; } .ib .k { font-size: 12px; padding: 1px 8px; border-radius: 99px; background: #EEF2FF; color: #3730A3; white-space: nowrap; } .ib .x { display: block; color: var(--ink-3); font-size: 12.5px; margin-top: 2px; word-break: break-word; } .ib small { color: var(--ink-3); white-space: nowrap; }
+  .at { color: #1D4ED8; font-weight: 600; } .acl { position: absolute; z-index: 90; background: var(--surface); border: 1px solid var(--line-strong); border-radius: 10px; box-shadow: 0 8px 24px rgba(15,20,35,.15); padding: 4px; display: none; min-width: 160px; }
+  .acl button { display: flex; gap: 8px; align-items: center; width: 100%; border: 0; background: none; padding: 6px 10px; border-radius: 8px; cursor: pointer; font-size: 13.5px; text-align: left; } .acl button.on, .acl button:hover { background: #EEF2FF; }
+  @media (max-width: 760px) { .inb { position: static; margin-top: 10px; } }
   .lk { border: 0; background: none; color: var(--link); padding: 0; cursor: pointer; font-size: inherit; }
   /* 看板 */
   .board { display: flex; gap: 12px; overflow-x: auto; padding: 4px 2px 12px; align-items: flex-start; margin-top: 14px; }
@@ -172,9 +180,12 @@
   <header class="hero"><nav class="crumb" id="crumb">agent-page-feedback</nav>
     <h1>任务中心 <span class="badge">团队内部</span></h1>
     <p>每一条意见、每一个需求都是一张卡。人提出和拍板，agent 分诊、修改、交付。把卡拖到另一道就是改状态（拍板类只有负责人能拖）。<button class="lk" id="mcpb">给 agent 接入 ›</button></p>
+    <button class="inb" id="inbb" hidden>收件箱 <b id="inbn">0</b></button>
   </header>
   <div id="app"></div>
 </main>
+<dialog id="inbd"><div class="dlg"><h3 id="inbt">收件箱</h3><p>有人 @ 你的、交给你可以做的、等你决定和验收的。点一条打开那张卡，@ 你的会标为已读。</p>
+  <div id="inbl" class="inbl"></div><div class="row"><button class="btn" id="inbr">全部标为已读</button><button class="btn pri" onclick="this.closest('dialog').close()">关闭</button></div></div></dialog>
 <dialog id="mcpd"><div class="dlg"><h3>给 agent 接入</h3>
   <p>任务中心是一个 MCP 服务。agent 连上以后会先收到协作规则（只做自己的工单、先认领、只认负责人的决定、交付等验收），再用工具读清单、认领、回复、出方案、交付、交叉核对。它没有拍板的工具。</p>
   <p><b>Claude Code</b>（在终端里执行一次；口令只填在自己电脑上，不要发到聊天里）：</p>
@@ -231,8 +242,9 @@
     $('.gate').onsubmit = async e => { e.preventDefault(); const c = $('#gc').value.trim(), n = $('#gn').value.trim(); if (!c || !n) { $('#ge').textContent = '口令和姓名都要填'; return; }
       LS.set('code', c); LS.set('name', n); try { await load(); } catch (er) { LS.set('code', ''); $('#ge').textContent = er.message; } };
   }
-  let PRES = null, ACT = [];
+  let PRES = null, ACT = [], INB = { items: [], unread: 0 };
   async function load() { const [r, st, pf, pr, ac] = await Promise.all([api('items?all=1'), api('stats').catch(() => null), api('prefs').catch(() => ({ prefs: [] })), api('presence').catch(() => null), api('activity?limit=120').catch(() => ({ events: [] }))]);
+    INB = await api('inbox').catch(() => INB); inbBadge();
     ITEMS = r.items; role = r.role; STATS = st; PREFS = pf.prefs || []; PRES = pr; ACT = ac.events || []; render();
     const m = location.hash.match(/^#item-(\d+)$/); if (m && (VIEW === 'board' || VIEW === 'rows') && ITEMS.some(x => x.id === +m[1])) { openItem(+m[1]); return; }
     if (m) setTimeout(() => { const c = document.querySelector(`.cd[data-id="${m[1]}"]`); if (c) { c.scrollIntoView({ block: 'center' }); c.classList.add('flash'); } }, 200); }
@@ -378,6 +390,7 @@
         ${role === 'admin' && (DECIDE[it.status] || []).length ? `<div class="dec"><span>${it.status === 'review' ? '验收' : it.status === 'question' ? '请决定' : '负责人'}</span>${DECIDE[it.status].map(([a, nm], i) => `<button data-dec="${a}" class="${i === 0 && a !== 'wontfix' && a !== 'reopen' ? 'go' : ''}">${nm}</button>`).join('')}</div>` : ''}
         <div class="ra"><input type="text" placeholder="回复…（可粘贴图片）" maxlength="1000"><label>图片<input type="file" accept="image/png,image/jpeg,image/webp,image/gif" multiple></label><button class="btn sm rp">回复</button>${it.mine || role === 'admin' ? '<button class="del">删除</button>' : ''}</div>
         <div class="pend"></div></div></article>`; }
+  const atHi = h => h.replace(/(^|[^\w@.])@([\w\u4e00-\u9fff][\w\u4e00-\u9fff.-]{0,23})/g, (_, a, n) => `${a}<span class="at">@${n}</span>`);
   function msg(r, it) { const ai = isAI(r.author), sys = r.kind === 'status', m = sys && r.body.match(/^把状态改为「(.+?)」：?([\s\S]*)$/), meta = r.meta || {};
     const imgs = fs => fs.length ? `<div class="imgs" style="margin-top:6px">${fs.map(f => `<img data-fid="${f.id}" alt="附图">`).join('')}</div>` : '';
     let text;
@@ -388,7 +401,7 @@
         ${(meta.links || []).length ? `<p>${meta.links.map(l => `<a href="${esc(l.url)}" target="_blank" rel="noopener">${esc(l.name || '查看')} ↗</a>`).join(' · ')}</p>` : ''}${meta.rollback ? `<span class="rb">回滚编号：${esc(meta.rollback)}</span>` : ''}</div>`; }
     else if (r.kind === 'decision') text = `<span class="dtag">决定</span>${esc(r.body)}`;
     else if (r.kind === 'check') text = `<div class="rbox chk ${meta.result === 'fail' ? 'fail' : ''}"><h4>交叉核对 · ${meta.result === 'pass' ? '核对通过' : meta.result === 'fail' ? '发现问题' : '意见'}（供负责人参考，不算验收）</h4><p>${esc(r.body)}</p>${imgs(r.files || [])}</div>`;
-    else text = (m ? (/已改好|已完成/.test(m[1]) ? `<span class="ok-tag">${esc(m[1])}</span>` : `<b>改为「${esc(m[1])}」</b> `) + esc(m[2]) : esc(r.body)) + imgs(r.files || []);
+    else text = (m ? (/已改好|已完成/.test(m[1]) ? `<span class="ok-tag">${esc(m[1])}</span>` : `<b>改为「${esc(m[1])}」</b> `) + esc(m[2]) : atHi(esc(r.body))) + imgs(r.files || []);
     return `<div class="msg ${ai ? 'ai' : ''} ${sys ? 'sys' : ''} ${r.kind === 'decision' ? 'decision' : ''}">${av(r.author, 1)}<div class="bub"><small><b>${esc(r.author)}</b>${r.role === 'admin' ? ' · 负责人' : ''}${ai ? ' · AI' : ''} · ${when(r.created)}</small>${text}</div></div>`; }
 
   // ---------- 时间线 · 复盘：提出、回复、处理，按日期 ----------
@@ -444,6 +457,33 @@
   // 每分钟刷新一次（页面在后台、详情里正在写回复时不刷新）
   setInterval(() => { if (document.hidden || !ITEMS.length) return; const a = document.activeElement; if (a && a.matches && a.matches('input, textarea') && a.value) return;
     const y = scrollY; load().then(() => scrollTo(0, y)).catch(() => {}); }, 60000);
+
+  // ---------- 收件箱 ----------
+  function inbBadge() { const b = $('#inbb'); if (!b) return; b.hidden = false; const n = $('#inbn'); n.textContent = INB.unread; n.classList.toggle('z', !INB.unread); }
+  function inbList() { const T = { mention: '@你', todo: '交给你', decide: '等你决定', accept: '等你验收' };
+    $('#inbt').textContent = `收件箱 · ${LS.get('name')}`;
+    $('#inbl').innerHTML = INB.items.length ? INB.items.map(x => `<button class="ib${x.type === 'mention' && !x.read || x.type !== 'mention' ? ' new' : ''}" data-ib="${x.item}" data-mt="${x.type}"><span class="k">${T[x.type]}</span><span><b>#${x.item}</b> ${esc(x.title || '')}${x.by ? ` · ${esc(x.by)}` : ''}<span class="x">${atHi(esc(String(x.text || '').replace(/\s+/g, ' ').slice(0, 140)))}</span></span><small>${ago2(x.created)}</small></button>`).join('') : '<div class="empty">收件箱是空的。</div>'; }
+  document.addEventListener('click', async e => {
+    if (e.target.closest('#inbb')) { inbList(); $('#inbd').showModal(); return; }
+    if (e.target.closest('#inbr')) { try { await api('inbox/read', { all: true }); INB = await api('inbox'); inbBadge(); inbList(); } catch (er) { alert(er.message); } return; }
+    const ib = e.target.closest('[data-ib]'); if (!ib) return; const id = +ib.dataset.ib; $('#inbd').close(); openItem(id);
+    if (ib.dataset.mt === 'mention') { try { await api('inbox/read', { items: [id] }); INB = await api('inbox'); inbBadge(); } catch (er) {} } });
+
+  // ---------- @ 补全：在回复框、新建需求里输入 @ 弹出名字 ----------
+  const names = () => [...new Set([...(PRES ? PRES.people.map(p => p.name) : []), ...ITEMS.map(i => i.assignee).filter(Boolean), ...ITEMS.map(i => i.author), 'Claude', 'Codex'])].filter(n => n && n !== '匿名' && n !== LS.get('name'));
+  let ACL = null, ACT_EL = null;
+  function acl() { if (!ACL) { ACL = document.createElement('div'); ACL.className = 'acl'; document.body.append(ACL); ACL.addEventListener('mousedown', e => { const b = e.target.closest('button'); if (b) { e.preventDefault(); pick(b.dataset.n); } }); } return ACL; }
+  function pick(n) { const el = ACT_EL; if (!el) return; const v = el.value, c = el.selectionStart, i = v.lastIndexOf('@', c - 1);
+    el.value = v.slice(0, i) + '@' + n + ' ' + v.slice(c); el.selectionStart = el.selectionEnd = i + n.length + 2; acl().style.display = 'none'; el.focus(); }
+  document.addEventListener('input', e => { const el = e.target; if (!el.matches || !el.matches('.ra input[type=text], #nrB')) return; ACT_EL = el;
+    const v = el.value.slice(0, el.selectionStart), m = v.match(/(^|[^\w@.])@([\w\u4e00-\u9fff.-]{0,20})$/), box = acl();
+    if (!m) { box.style.display = 'none'; return; } const q = m[2].toLowerCase(), hit = names().filter(n => n.toLowerCase().includes(q)).slice(0, 8);
+    if (!hit.length) { box.style.display = 'none'; return; } const r = el.getBoundingClientRect();
+    box.innerHTML = hit.map((n, i) => `<button data-n="${esc(n)}" class="${i ? '' : 'on'}">${av(n, 1)}${esc(n)}</button>`).join(''); Object.assign(box.style, { display: 'block', left: r.left + scrollX + 'px', top: r.bottom + scrollY + 4 + 'px' }); });
+  document.addEventListener('keydown', e => { if (!ACL || ACL.style.display !== 'block' || e.target !== ACT_EL) return; const bs = [...ACL.querySelectorAll('button')], i = bs.findIndex(b => b.classList.contains('on'));
+    if (e.key === 'ArrowDown' || e.key === 'ArrowUp') { e.preventDefault(); bs[i].classList.remove('on'); bs[(i + (e.key === 'ArrowDown' ? 1 : bs.length - 1)) % bs.length].classList.add('on'); }
+    else if (e.key === 'Enter' || e.key === 'Tab') { e.preventDefault(); e.stopImmediatePropagation(); pick(bs[i].dataset.n); } else if (e.key === 'Escape') ACL.style.display = 'none'; }, true);
+  document.addEventListener('focusout', e => { if (ACL && e.target === ACT_EL) setTimeout(() => { ACL.style.display = 'none'; }, 150); });
 
   // ---------- 给 agent 接入（MCP） ----------
   document.addEventListener('click', e => { if (!e.target.closest('#mcpb')) return; const u = new URL(API, location.href).href + 'mcp';

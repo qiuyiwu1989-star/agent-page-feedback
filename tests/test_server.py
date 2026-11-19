@@ -244,6 +244,28 @@ class ServerTest(unittest.TestCase):
         ev = json.loads(self.req('activity?limit=20')[1])['events']
         self.assertEqual([e['kind'] for e in ev if e['item'] == iid][:3], ['status', 'decision', 'new'])
 
+    def test_mentions_and_inbox(self):
+        """@ 进对方收件箱（@Codex 也到 Codex-1）；交给我且可以做的也在；标已读只标自己的。"""
+        iid = self.new_item(body='首页标题 @邱懿武 看一下', name='张三')['id']
+        self.req(f'items/{iid}/reply', {'body': '@Codex 能帮忙查一下生成器吗？@张三 先别动'}, name='Claude')
+        box = json.loads(self.req('inbox', name='Codex-1')[1])
+        m = [x for x in box['items'] if x['type'] == 'mention' and x['item'] == iid]
+        self.assertEqual(len(m), 1); self.assertFalse(m[0]['read']); self.assertIn('生成器', m[0]['text']); self.assertGreaterEqual(box['unread'], 1)
+        q = json.loads(self.req('queue.json?for=Codex')[1]); self.assertIn(iid, [x['item'] for x in q['mentioned']]); self.assertGreaterEqual(q['summary']['mentioned'], 1)
+        # 别人标不了 Codex 的已读；Codex-1 自己标
+        self.assertEqual(json.loads(self.req('inbox/read', {'items': [iid]}, name='张三')[1])['read'], 1)   # 张三只标掉了 @张三 的那条
+        self.assertFalse(next(x for x in json.loads(self.req('inbox', name='Codex-1')[1])['items'] if x['type'] == 'mention' and x['item'] == iid)['read'])
+        self.req('inbox/read', {'items': [iid]}, name='Codex-1')
+        self.assertTrue(next(x for x in json.loads(self.req('inbox', name='Codex-1')[1])['items'] if x['type'] == 'mention' and x['item'] == iid)['read'])
+        # 负责人：自己的 @ + 等决定 / 验收；交给某人且可以做的进他的收件箱
+        self.assertIn(iid, [x['item'] for x in json.loads(self.req('inbox', code='admin-code', name='邱懿武')[1])['items'] if x['type'] == 'mention'])
+        j = self.new_item(body='交给向为', assignee='向为')['id']; self.req(f'items/{j}/decide', {'action': 'approve'}, code='admin-code', name='负责人')
+        self.assertIn(j, [x['item'] for x in json.loads(self.req('inbox', name='向为')[1])['items'] if x['type'] == 'todo'])
+        # 自己 @ 自己不算；邮箱样式的 a@b 不算
+        k = self.new_item(body='联系 me@example.com，@张三 自己记一下', name='张三')['id']
+        self.assertNotIn(k, [x['item'] for x in json.loads(self.req('inbox', name='张三')[1])['items'] if x['type'] == 'mention'])
+        self.assertNotIn(k, [x['item'] for x in json.loads(self.req('inbox', name='example.com')[1])['items']])
+
     def test_mcp(self):
         """MCP：连上就拿到规则；工具按同样的权限转调接口；没有拍板工具。"""
         self.assertIn(self.mcp({'jsonrpc': '2.0', 'id': 1, 'method': 'initialize', 'params': {}}, code='wrong')[0], (401, 429))   # 口令错（前面的测试可能已经触发了限流）
