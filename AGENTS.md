@@ -65,6 +65,9 @@ curl -s -H "X-FB-Code: $FB_CODE" "${FB_API}queue.json"    # 同样内容的 JSON
 - 正文第一行写「【交给 X】」的旧写法会自动识别成负责方 X。
 - agent 之间的委托也要负责人点「可以做」才开工（负责人已确认过的清单，工单里会注明）。
 
+### 参与方名单
+任务中心的「参与方」（`GET roster`，MCP 的 `roster`）写着每个人和每个 AI 的角色、负责范围。给别人开工单、@ 人之前先看一眼，交给负责这块的人。名单只有负责人能改。
+
 ### @ 和收件箱
 回复里写 @名字（@Codex 也会通知 Codex-1 等实例），对方的收件箱会收到。开工前看一下自己的收件箱（`python3 tools/fb.py inbox`，或 MCP 的 `inbox`）：有人 @ 你，就在那张工单里回答，再标已读（`fb.py read 编号`）。被 @ 不等于交给你，别人的活不要因此去做。
 
@@ -161,6 +164,7 @@ curl -s -X POST -H "X-FB-Code: $FB_CODE" -H "X-FB-Name: Claude" -H "Content-Type
 | GET | `site-file?path=` | 取一个文件的当前版本（有源文件时取源文件），按文件发布用 |
 | GET | `deploys`、`deploys/<id>` | 发布登记 |
 | POST | `deploys/<id>/rollback` | 撤销这次发布（按文件发布：只恢复它动过的文件；git 发布：整站恢复到它之前）（agent / 管理员口令） |
+| GET / POST | `roster`、`roster/<名字>/off` | 参与方名单（谁是人、谁是 AI、角色、负责范围、手上的工单）；登记和停用只限负责人 |
 | GET / POST | `inbox`、`inbox/read` | 收件箱：@ 我的、交给我且可以做的（负责人另有等决定 / 验收）；标已读 `{items: [工单编号]}` |
 | GET | `presence`、`activity` | 在场（谁在做哪张、是否可能卡住）和全局动态 |
 | POST | `mcp` | MCP 服务（JSON-RPC）：连上拿到规则和工具，权限和直接调接口一样 |

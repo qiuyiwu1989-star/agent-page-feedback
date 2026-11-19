@@ -266,6 +266,23 @@ class ServerTest(unittest.TestCase):
         self.assertNotIn(k, [x['item'] for x in json.loads(self.req('inbox', name='张三')[1])['items'] if x['type'] == 'mention'])
         self.assertNotIn(k, [x['item'] for x in json.loads(self.req('inbox', name='example.com')[1])['items']])
 
+    def test_roster(self):
+        """参与方名单：在工单里出现过的自动列出；只有负责人能登记、停用；带工作情况。"""
+        iid = self.new_item(body='名单测试', assignee='Codex-7', name='王老师')['id']
+        self.req(f'items/{iid}/decide', {'action': 'approve'}, code='admin-code', name='负责人')
+        ppl = {p['name']: p for p in json.loads(self.req('roster')[1])['people']}
+        self.assertIn('王老师', ppl); self.assertFalse(ppl['王老师']['registered']); self.assertEqual(ppl['Codex-7']['kind'], 'agent'); self.assertGreaterEqual(ppl['Codex-7']['approved'], 1)
+        self.assertEqual(self.req('roster', {'name': '王老师', 'label': '老师'})[0], 403)                       # 成员不能改
+        self.assertEqual(self.req('roster', {'name': 'bad name!'}, code='admin-code')[0], 400)
+        st, b, _ = self.req('roster', {'name': '王老师', 'kind': 'human', 'label': '老师', 'scope': '课程页内容审核'}, code='admin-code', name='负责人'); self.assertEqual(st, 200)
+        w = next(p for p in json.loads(b)['people'] if p['name'] == '王老师'); self.assertTrue(w['registered']); self.assertEqual(w['scope'], '课程页内容审核')
+        self.req('roster', {'name': '王老师', 'label': '老师', 'scope': '课程页'}, code='admin-code')            # 再登记 = 修改，不重复
+        self.assertEqual(sum(1 for p in json.loads(self.req('roster')[1])['people'] if p['name'] == '王老师'), 1)
+        st, b, _ = self.req('roster/' + urllib.request.quote('王老师') + '/off', {}, code='admin-code'); self.assertEqual(st, 200)
+        self.assertFalse(next(p for p in json.loads(b)['people'] if p['name'] == '王老师')['registered'])
+        # MCP 能读
+        err, t = self.call('roster', {}); self.assertFalse(err); self.assertIn('Codex-7', t)
+
     def test_mcp(self):
         """MCP：连上就拿到规则；工具按同样的权限转调接口；没有拍板工具。"""
         self.assertIn(self.mcp({'jsonrpc': '2.0', 'id': 1, 'method': 'initialize', 'params': {}}, code='wrong')[0], (401, 429))   # 口令错（前面的测试可能已经触发了限流）

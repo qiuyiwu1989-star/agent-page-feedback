@@ -30,6 +30,12 @@
   .acts2 { margin-top: 14px; display: grid; gap: 4px; } .acts2 h3 { margin: 14px 0 4px; font-size: 14px; color: var(--ink-2); }
   .ae { display: grid; grid-template-columns: 24px minmax(0, 1fr) auto; gap: 8px; align-items: start; text-align: left; border: 0; background: var(--surface); border-radius: 10px; padding: 8px 12px; cursor: pointer; font-size: 13.5px; }
   .ae:hover { background: #EEF2FF; } .ae .ai { color: var(--link); margin: 0 4px; } .ae .at { display: block; color: var(--ink-3); font-size: 12.5px; margin-top: 2px; word-break: break-word; } .ae small { color: var(--ink-3); }
+  .ppl .hint { color: var(--ink-2); margin: 16px 0 0; } .ppl h3 { margin: 18px 0 8px; font-size: 15px; } .pcs { display: grid; grid-template-columns: repeat(auto-fill, minmax(270px, 1fr)); gap: 12px; }
+  .pc { background: var(--surface); border: 1px solid var(--line); border-radius: 16px; padding: 14px 16px; display: grid; gap: 8px; } .pc.un { border-style: dashed; }
+  .pc header { display: flex; gap: 10px; align-items: center; } .pc header div { flex: 1; display: grid; } .pc header small { color: var(--ink-3); font-size: 12.5px; }
+  .pc .sc, .pc .nt { margin: 0; font-size: 13px; color: var(--ink-2); } .pc .nt { color: var(--ink-3); }
+  .pc .nums { display: grid; grid-template-columns: repeat(5, 1fr); gap: 4px; text-align: center; font-size: 11.5px; color: var(--ink-3); } .pc .nums b { display: block; font-size: 17px; color: var(--ink); }
+  .pc footer { display: flex; justify-content: space-between; gap: 8px; font-size: 12.5px; color: var(--ink-3); }
   .whos { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 12px; } .who { display: inline-flex; align-items: center; gap: 6px; height: 34px; padding: 0 12px 0 6px; border-radius: 99px; border: 1px solid var(--line); background: var(--surface); cursor: pointer; font-size: 13.5px; }
   .who:first-child { padding-left: 12px; } .who small { color: var(--ink-3); font-size: 12px; } .who[aria-pressed="true"] { border-color: #1f2430; background: #1f2430; color: #fff; } .who[aria-pressed="true"] small { color: #cbd2e1; }
   .bc .last { grid-column: 1 / -1; font-size: 12px; color: var(--ink-2); background: var(--sunken); border-radius: 8px; padding: 4px 8px; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; word-break: break-word; }
@@ -184,6 +190,13 @@
   </header>
   <div id="app"></div>
 </main>
+<dialog id="rosd"><form class="dlg newreq" method="dialog"><h3>参与方</h3><p>人或 AI 的名字要和他署名用的一致（例如 Codex-1、向为老师）。</p>
+  <label>名字</label><input id="rsN" maxlength="40">
+  <div class="row2"><span><label>是</label><select id="rsK"><option value="human">人</option><option value="agent">AI</option></select></span><span><label>角色</label><input id="rsL" maxlength="30" placeholder="负责人 / 老师 / 同学 / AI 开发"></span></div>
+  <label>负责范围</label><input id="rsS" maxlength="300" placeholder="例如：生成器和首页；课程页内容审核">
+  <label>备注</label><input id="rsT" maxlength="300" placeholder="例如：能发布 / 只读 / 只在周末">
+  <div class="err" id="rsE"></div>
+  <div class="row"><button class="btn" id="rsOff" type="button" hidden>停用</button><button class="btn" value="cancel" formnovalidate>取消</button><button class="btn pri" id="rsOk" type="button">保存</button></div></form></dialog>
 <dialog id="inbd"><div class="dlg"><h3 id="inbt">收件箱</h3><p>有人 @ 你的、交给你可以做的、等你决定和验收的。点一条打开那张卡，@ 你的会标为已读。</p>
   <div id="inbl" class="inbl"></div><div class="row"><button class="btn" id="inbr">全部标为已读</button><button class="btn pri" onclick="this.closest('dialog').close()">关闭</button></div></div></dialog>
 <dialog id="mcpd"><div class="dlg"><h3>给 agent 接入</h3>
@@ -242,9 +255,9 @@
     $('.gate').onsubmit = async e => { e.preventDefault(); const c = $('#gc').value.trim(), n = $('#gn').value.trim(); if (!c || !n) { $('#ge').textContent = '口令和姓名都要填'; return; }
       LS.set('code', c); LS.set('name', n); try { await load(); } catch (er) { LS.set('code', ''); $('#ge').textContent = er.message; } };
   }
-  let PRES = null, ACT = [], INB = { items: [], unread: 0 };
+  let PRES = null, ACT = [], INB = { items: [], unread: 0 }, ROS = [];
   async function load() { const [r, st, pf, pr, ac] = await Promise.all([api('items?all=1'), api('stats').catch(() => null), api('prefs').catch(() => ({ prefs: [] })), api('presence').catch(() => null), api('activity?limit=120').catch(() => ({ events: [] }))]);
-    INB = await api('inbox').catch(() => INB); inbBadge();
+    INB = await api('inbox').catch(() => INB); inbBadge(); ROS = ((await api('roster').catch(() => null)) || { people: ROS }).people;
     ITEMS = r.items; role = r.role; STATS = st; PREFS = pf.prefs || []; PRES = pr; ACT = ac.events || []; render();
     const m = location.hash.match(/^#item-(\d+)$/); if (m && (VIEW === 'board' || VIEW === 'rows') && ITEMS.some(x => x.id === +m[1])) { openItem(+m[1]); return; }
     if (m) setTimeout(() => { const c = document.querySelector(`.cd[data-id="${m[1]}"]`); if (c) { c.scrollIntoView({ block: 'center' }); c.classList.add('flash'); } }, 200); }
@@ -276,7 +289,7 @@
       <div class="stack">${Object.keys(STAT).map(k => cnt(k) ? `<i style="width:${cnt(k) / n * 100}%;background:${SCOL[k]}" title="${STAT[k]} ${cnt(k)}"></i>` : '').join('')}</div>
       <div class="legend">${Object.entries(STAT).map(([k, v]) => `<span><i style="background:${SCOL[k]}"></i>${v} ${cnt(k)}</span>`).join('')}</div>
       <div class="people">${PP.map(([nm, p]) => `<button class="pp" data-who="${esc(nm)}" aria-pressed="${F.who === nm}">${av(nm)}<span>${esc(nm)}</span><small>${isAI(nm) ? `处理 ${p.handled.size} 条` : `提出 ${p.raised}${p.replies ? ' · 回复 ' + p.replies : ''}`}</small></button>`).join('')}</div>
-      <div class="bar"><span class="seg"><button data-v="board" aria-pressed="${VIEW === 'board'}">看板</button><button data-v="rows" aria-pressed="${VIEW === 'rows'}">按负责方</button><button data-v="cards" aria-pressed="${VIEW === 'cards'}">列表</button><button data-v="act" aria-pressed="${VIEW === 'act'}">动态</button><button data-v="tl" aria-pressed="${VIEW === 'tl'}">时间线 · 复盘</button><button data-v="pf" aria-pressed="${VIEW === 'pf'}">偏好手册 ${PREFS.length}</button></span>
+      <div class="bar"><span class="seg"><button data-v="board" aria-pressed="${VIEW === 'board'}">看板</button><button data-v="rows" aria-pressed="${VIEW === 'rows'}">按负责方</button><button data-v="cards" aria-pressed="${VIEW === 'cards'}">列表</button><button data-v="act" aria-pressed="${VIEW === 'act'}">动态</button><button data-v="ppl" aria-pressed="${VIEW === 'ppl'}">参与方</button><button data-v="tl" aria-pressed="${VIEW === 'tl'}">时间线 · 复盘</button><button data-v="pf" aria-pressed="${VIEW === 'pf'}">偏好手册 ${PREFS.length}</button></span>
         <select id="fs"><option value="all">全部状态</option><option value="todo"${F.st === 'todo' ? ' selected' : ''}>未完成</option>${Object.entries(STAT).map(([k, v]) => `<option value="${k}"${F.st === k ? ' selected' : ''}>${v}</option>`).join('')}</select>
         <select id="fk"><option value="">全部类型</option>${Object.entries(KIND).map(([k, v]) => `<option value="${k}"${F.kind === k ? ' selected' : ''}>${v}</option>`).join('')}</select>
         <select id="fp"><option value="">全部页面</option>${pages.map(([p, t]) => `<option value="${esc(p)}"${F.page === p ? ' selected' : ''}>${esc(t)}</option>`).join('')}</select>
@@ -303,8 +316,8 @@
   const REQ = '_requests';
   const href = it => { if (it.page === REQ) return '#item-' + it.id; const u = it.url || it.page; return u + (u.includes('?') ? '&' : '?') + 'fbid=' + it.id; };
   function renderList() { const rows = VIEW === 'pf' ? [] : ITEMS.filter(pass), box = $('#list');
-    if (!rows.length && VIEW !== 'pf' && VIEW !== 'act') { box.innerHTML = `<div class="empty">${ITEMS.length ? '没有符合筛选条件的批注。' : '还没有批注。打开任意页面，点左下角「批注」开始。'}</div>`; return; }
-    box.innerHTML = VIEW === 'act' ? actView() : VIEW === 'pf' ? prefsView() : VIEW === 'tl' ? timeline(rows) : VIEW === 'board' ? board(rows) : VIEW === 'rows' ? byOwner(rows) : cards(rows); M && M.hydrate(box); drawer(); M && M.hydrate($('.todo') || document.createElement('i')); }
+    if (!rows.length && VIEW !== 'pf' && VIEW !== 'act' && VIEW !== 'ppl') { box.innerHTML = `<div class="empty">${ITEMS.length ? '没有符合筛选条件的批注。' : '还没有批注。打开任意页面，点左下角「批注」开始。'}</div>`; return; }
+    box.innerHTML = VIEW === 'ppl' ? pplView() : VIEW === 'act' ? actView() : VIEW === 'pf' ? prefsView() : VIEW === 'tl' ? timeline(rows) : VIEW === 'board' ? board(rows) : VIEW === 'rows' ? byOwner(rows) : cards(rows); M && M.hydrate(box); drawer(); M && M.hydrate($('.todo') || document.createElement('i')); }
   // 负责人偏好手册：从每次「通过 / 再改 / 选方案」里总结出来的标准，agent 动手前先读
   function prefsView() { return `<section class="prefs"><p style="margin:0;color:var(--ink-2)">agent 每次动手前先读这份手册。它由 agent 根据你的决定总结，也可以直接添加；不再适用的可以停用。</p>
       <form id="pfa"><input placeholder="添加一条标准，例如：文案要短，不要星号和备注" maxlength="300"><button class="btn pri">添加</button></form>
@@ -341,6 +354,23 @@
     const K = { new: '提出', reply: '回复', status: '', decision: '决定', proposal: '出方案', report: '交付', check: '核对' }; const by = new Map();
     ACT.filter(e => !F.asg || (ITEMS.find(x => x.id === e.item) || {}).assignee === F.asg || (F.asg === '-' && !(ITEMS.find(x => x.id === e.item) || {}).assignee)).forEach(e => { const d = new Date(e.t * 1000).toLocaleDateString('zh-CN', { month: 'long', day: 'numeric', weekday: 'short' }); if (!by.has(d)) by.set(d, []); by.get(d).push(e); });
     return `<div class="acts2">${[...by.entries()].map(([d, es]) => `<h3>${d}</h3>${es.map(e => `<button class="ae" data-open="${e.item}">${av(e.who, 1)}<span class="aw"><b>${esc(e.who)}</b>${e.role === 'admin' ? '（负责人）' : ''} ${K[e.kind] != null ? K[e.kind] : e.kind} <span class="ai">#${e.item}${e.title ? ' ' + esc(e.title.slice(0, 30)) : ''}</span><span class="at">${esc(String(e.text).replace(/\s+/g, ' ').slice(0, 120))}</span></span><small>${new Date(e.t * 1000).toTimeString().slice(0, 5)}</small></button>`).join('')}`).join('')}</div>`; }
+  // ---------- 参与方 ----------
+  function pplView() { const admin = role === 'admin';
+    const card = p => `<article class="pc${p.registered ? '' : ' un'}"><header>${av(p.name)}<div><b>${esc(p.name)}</b><small>${p.kind === 'agent' ? 'AI' : '人'}${p.label ? ' · ' + esc(p.label) : ''}${p.registered ? '' : ' · 未登记'}</small></div>
+        ${admin ? `<button class="btn sm" data-ros="${esc(p.name)}">${p.registered ? '编辑' : '登记'}</button>` : ''}</header>
+      ${p.scope ? `<p class="sc">负责：${esc(p.scope)}</p>` : ''}${p.note ? `<p class="nt">${esc(p.note)}</p>` : ''}
+      <div class="nums"><span><b>${p.open}</b>未完成</span><span><b>${p.doing}</b>处理中</span><span><b>${p.review}</b>待验收</span><span><b>${p.done}</b>已完成</span><span><b>${p.first_pass == null ? '—' : Math.round(p.first_pass * 100) + '%'}</b>一次通过</span></div>
+      <footer><span>${p.working && p.working.length ? '正在做 ' + p.working.map(i => '#' + i).join(' ') : p.seen ? '最近活动 ' + ago2(p.seen) : '还没有活动'}</span>${p.open ? `<button class="lk" data-pplgo="${esc(p.name)}">看他的工单 ›</button>` : ''}</footer></article>`;
+    const reg = ROS.filter(p => p.registered), un = ROS.filter(p => !p.registered);
+    return `<section class="ppl"><p class="hint">${admin ? '你是负责人：可以登记每个人和每个 AI 的角色、负责范围。agent 开工单、@ 人之前会先看这份名单。' : '谁是人、谁是 AI、各自负责什么。名单由负责人维护。'}${admin ? ' <button class="btn sm pri" data-ros="">＋ 登记一个参与方</button>' : ''}</p>
+      ${reg.length ? `<h3>已登记 · ${reg.length}</h3><div class="pcs">${reg.map(card).join('')}</div>` : ''}${un.length ? `<h3>在工单里出现过、还没登记 · ${un.length}</h3><div class="pcs">${un.map(card).join('')}</div>` : ''}</section>`; }
+  async function editRos(n) { const p = ROS.find(x => x.name === n) || { name: '', kind: 'human', label: '', scope: '', note: '' };
+    const d = $('#rosd'); $('#rsN').value = p.name; $('#rsN').readOnly = !!p.name; $('#rsK').value = p.kind; $('#rsL').value = p.label; $('#rsS').value = p.scope; $('#rsT').value = p.note; $('#rsOff').hidden = !p.registered; $('#rsE').textContent = ''; d.showModal(); }
+  document.addEventListener('click', async e => {
+    const r = e.target.closest('[data-ros]'); if (r) { editRos(r.dataset.ros); return; }
+    const g = e.target.closest('[data-pplgo]'); if (g) { F.asg = g.dataset.pplgo; VIEW = 'board'; LS.set('view', VIEW); render(); scrollTo(0, 0); return; }
+    if (e.target.closest('#rsOff')) { if (!confirm('停用 ' + $('#rsN').value + '？（工单记录保留）')) return; try { ROS = (await api('roster/' + encodeURIComponent($('#rsN').value) + '/off', {})).people; $('#rosd').close(); renderList(); } catch (er) { $('#rsE').textContent = er.message; } return; }
+    if (e.target.closest('#rsOk')) { e.preventDefault(); try { ROS = (await api('roster', { name: $('#rsN').value.trim(), kind: $('#rsK').value, label: $('#rsL').value.trim(), scope: $('#rsS').value.trim(), note: $('#rsT').value.trim() })).people; $('#rosd').close(); renderList(); } catch (er) { $('#rsE').textContent = er.message; } } });
   function board(rows) { return `<div class="lanetabs">${LANES.map(([s, n]) => `<button data-tab="${s}" aria-pressed="${s === LANE_CUR}">${n} ${rows.filter(it => laneOf(it) === s).length}</button>`).join('')}</div>${lanes(rows)}`; }
   function byOwner(rows) { const g = new Map(); rows.forEach(it => { const k = it.assignee || ''; if (!g.has(k)) g.set(k, []); g.get(k).push(it); });
     return `<div class="rows">${[...g.entries()].sort((a, b) => (!a[0]) - (!b[0]) || a[0].localeCompare(b[0])).map(([o, its]) => `<section class="row"><h2>${o ? av(o, 1) : ''}${esc(o || '没有负责方（由 Claude 先分诊）')}<small>${its.filter(isOpen).length} 条未完成</small><span class="st">${[['approved', '可以做'], ['doing', '处理中'], ['review', '待验收'], ['question', '待决定']].map(([k, t]) => { const c = its.filter(x => x.status === k).length; return c ? `${t} ${c}` : ''; }).filter(Boolean).join(' · ')}</span></h2>${lanes(its, true)}</section>`).join('')}</div>`; }
@@ -470,7 +500,7 @@
     if (ib.dataset.mt === 'mention') { try { await api('inbox/read', { items: [id] }); INB = await api('inbox'); inbBadge(); } catch (er) {} } });
 
   // ---------- @ 补全：在回复框、新建需求里输入 @ 弹出名字 ----------
-  const names = () => [...new Set([...(PRES ? PRES.people.map(p => p.name) : []), ...ITEMS.map(i => i.assignee).filter(Boolean), ...ITEMS.map(i => i.author), 'Claude', 'Codex'])].filter(n => n && n !== '匿名' && n !== LS.get('name'));
+  const names = () => [...new Set([...ROS.filter(p => p.registered).map(p => p.name), ...(PRES ? PRES.people.map(p => p.name) : []), ...ITEMS.map(i => i.assignee).filter(Boolean), ...ITEMS.map(i => i.author), 'Claude', 'Codex'])].filter(n => n && n !== '匿名' && n !== LS.get('name'));
   let ACL = null, ACT_EL = null;
   function acl() { if (!ACL) { ACL = document.createElement('div'); ACL.className = 'acl'; document.body.append(ACL); ACL.addEventListener('mousedown', e => { const b = e.target.closest('button'); if (b) { e.preventDefault(); pick(b.dataset.n); } }); } return ACL; }
   function pick(n) { const el = ACT_EL; if (!el) return; const v = el.value, c = el.selectionStart, i = v.lastIndexOf('@', c - 1);
