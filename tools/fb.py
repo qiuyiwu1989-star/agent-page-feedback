@@ -16,7 +16,8 @@
   python3 tools/fb.py crosscheck 编号 pass|fail "核对结果"   交叉核对别人的交付（只给负责人参考，不算验收）
   python3 tools/fb.py assign 编号 负责方                      改负责方（提出人或负责人）
   python3 tools/fb.py reply 编号 "内容"
-  python3 tools/fb.py propose 编号 方案.json    {"summary": "...", "options": [{"key": "A", "title": "...", "desc": "...", "link": "..."}]}
+  python3 tools/fb.py propose 编号 方案.json    {"summary": "...", "options": [{"key": "A", "title": "...", "desc": "...", "link": "...", "image": "a.webp"}]}
+                                              插画候选：每个方案的 image 写图片路径（相对方案文件），一个方案一张图，最多 8 个
   python3 tools/fb.py pref "一句话标准" [--item 编号]
   python3 tools/fb.py digest "标题" 内容.md [--button "文字=地址"]...
   python3 tools/fb.py deploy [--ref 提交号] [--item 编号]... [--note 说明]       等发布结束，打印发布编号（回滚编号）
@@ -155,6 +156,13 @@ def main():
     if a.cmd == 'reply': print('已回复 #%d' % call(f'items/{a.item}/reply', {'body': a.text})['item']['id']); return
     if a.cmd == 'propose':
         with open(a.file, encoding='utf-8') as f: body = json.load(f)
+        base = os.path.dirname(os.path.abspath(a.file))
+        for o in body.get('options') or []:   # 插画候选：image 可以写本机图片路径（相对方案文件），这里转成 data URL
+            im = o.get('image')
+            if im and not str(im).startswith('data:'):
+                fp = im if os.path.isabs(im) else os.path.join(base, im)
+                ext = os.path.splitext(fp)[1].lower().lstrip('.'); mime = {'jpg': 'jpeg'}.get(ext, ext)
+                with open(fp, 'rb') as f: o['image'] = f'data:image/{mime};base64,' + base64.b64encode(f.read()).decode()
         print('已出方案 #%d，状态：待决定' % call(f'items/{a.item}/propose', body)['item']['id']); return
     if a.cmd == 'pref': print('已记入偏好手册：' + call('prefs', {'text': a.text, 'item': a.item})['pref']['text']); return
     if a.cmd == 'digest':

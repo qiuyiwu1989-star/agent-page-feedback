@@ -1,0 +1,189 @@
+<!doctype html><html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="robots" content="noindex,nofollow"><title>视觉实验室 · 任务中心</title>
+<!-- 视觉实验室：任务中心上的画廊视图。每个插画位是一张 kind=illus 的工单；agent 出方案时每个方案带一张候选图；
+     负责人点「选这张」就是「选方案」，写一句话点「重画」就是「再改」。数据和权限全部沿用任务中心的接口。 -->
+<style>
+:root{--page:#EAE3D5;--juan:#F3EEE3;--su:#FBF8F2;--mo:#1C1A17;--danmo:#5C564E;--qianmo:#837A6E;--line:#DDD4C3;
+--xian:#E6D6B2;--zhe:#CC7A5C;--douqing:#8A9C7B;--tianqing:#AEC0CB;--ouhe:#A99CC4;--tan:#C9A07E;--yuebai:#E4E4DC;--cheng:#E2622A;--cheng-ink:#A84818;--green:#2F6D4F;
+--serif:"Noto Serif SC","Songti SC","STSong",serif;--sans:-apple-system,"PingFang SC","Noto Sans SC","Microsoft YaHei",sans-serif;--ease:cubic-bezier(.2,.7,.2,1)}
+*{box-sizing:border-box}html{color-scheme:light}body{margin:0;background:var(--juan);color:var(--mo);font:16px/1.75 var(--sans);letter-spacing:.02em;-webkit-font-smoothing:antialiased}
+a{color:inherit;text-decoration:none}button,input,select,textarea{font:inherit}button{cursor:pointer}
+.w{max-width:1200px;margin:0 auto;padding-inline:48px}
+.nav .w{display:flex;align-items:center;gap:20px;min-height:76px;flex-wrap:wrap}
+.name{font:700 20px/1 var(--serif);letter-spacing:.24em}
+.crumb{display:flex;gap:8px;align-items:center;font-size:14px;color:var(--danmo)}
+.end{margin-left:auto;display:flex;gap:8px;align-items:center}
+.cap{display:inline-flex;align-items:center;justify-content:center;gap:8px;height:40px;padding:0 20px;border-radius:999px;border:1px solid var(--mo);font:500 14.5px var(--sans);letter-spacing:.04em;background:transparent;color:var(--mo);transition:transform .12s var(--ease),background .2s}
+.cap:hover{transform:translateY(-1px)}.cap:active{transform:scale(.98)}.cap[disabled]{opacity:.5;cursor:default;transform:none}
+.cap.dark{background:var(--mo);color:var(--juan)}.cap.dark i{color:var(--cheng);font-style:normal}
+.cap.ghost{border-color:var(--line);background:var(--su);color:var(--danmo)}
+.cap.sm{height:34px;padding:0 15px;font-size:13.5px}
+.tag{display:flex;align-items:center;gap:12px;font:500 14px var(--sans);letter-spacing:.14em;color:var(--cheng-ink);margin:0 0 12px}
+.tag::before{content:"";width:34px;height:9px;background:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 40 10'%3E%3Cpath d='M1 6.2C9 2.6 23 2.2 39 3.6C27 6.4 12 7.8 1 6.2Z' fill='%23E2622A'/%3E%3C/svg%3E") no-repeat center/100% 100%}
+.intro{padding-block:40px 56px;display:grid;grid-template-columns:1fr auto;gap:40px;align-items:end}
+h1{font:700 clamp(34px,4vw,52px)/1.35 var(--serif);letter-spacing:.05em;margin:0 0 14px}
+.intro p{margin:0;color:var(--danmo);max-width:34em;font-size:16.5px;line-height:1.85}
+.flow{display:flex;margin-top:28px;font-size:14px;color:var(--danmo);flex-wrap:wrap;row-gap:8px}
+.flow span{display:flex;align-items:center;gap:8px;padding-right:14px}
+.flow span b{display:grid;place-items:center;width:24px;height:24px;border-radius:50%;background:var(--mo);color:var(--juan);font:600 12px var(--sans)}
+.flow span:nth-child(5) b{background:var(--cheng)}
+.flow i{font-style:normal;color:var(--line);padding-right:14px}
+.stats{display:flex;gap:28px}
+.stats div b{display:block;font:700 34px/1 var(--serif);font-variant-numeric:tabular-nums}.stats div span{font-size:13.5px;color:var(--danmo)}
+.stats div.hot b{color:var(--cheng)}
+.band{background:var(--page);padding-block:72px}.plain{padding-block:72px}
+.bar{display:flex;justify-content:space-between;align-items:center;gap:16px;margin-bottom:28px;flex-wrap:wrap}
+.bar h2{font:700 30px/1.4 var(--serif);letter-spacing:.05em;margin:0}.bar .hint{font-size:14px;color:var(--danmo)}
+.filters{display:flex;gap:8px;flex-wrap:wrap}
+.filters button{padding:7px 16px;border-radius:999px;background:var(--su);border:1px solid var(--line);font-size:14px;color:var(--danmo)}
+.filters button.on{background:var(--mo);border-color:var(--mo);color:var(--juan)}
+.pick{background:var(--su);border-radius:28px;padding:32px;display:grid;grid-template-columns:280px 1fr;gap:36px;margin-bottom:20px}
+.slot small{display:block;font:500 13px var(--sans);letter-spacing:.12em;color:var(--cheng-ink)}
+.slot h3{font:700 23px/1.5 var(--serif);letter-spacing:.04em;margin:6px 0 10px}
+.slot p{margin:0 0 16px;color:var(--danmo);font-size:15px;line-height:1.8}
+.slot .go{font-size:13.5px;color:var(--danmo);border-bottom:1px solid var(--line)}
+.meta{display:flex;flex-wrap:wrap;gap:6px 16px;font-size:13.5px;color:var(--qianmo);margin-top:12px}
+.meta .last{flex-basis:100%;color:var(--danmo)}
+details{margin-top:14px;font-size:13.5px;color:var(--danmo)}
+details summary{display:inline-flex;align-items:center;height:30px;padding:0 14px;border-radius:999px;border:1px solid var(--line);cursor:pointer;list-style:none}
+details summary::-webkit-details-marker{display:none}
+details pre{margin:10px 0 0;padding:12px 14px;background:var(--juan);border-radius:12px;font:13px/1.7 var(--sans);white-space:pre-wrap;word-break:break-word}
+.cands{display:grid;grid-template-columns:repeat(4,1fr);gap:14px;align-content:start}
+.cand{display:flex;flex-direction:column;gap:10px;min-width:0}
+.cand .img{position:relative;border-radius:18px;overflow:hidden;outline:2px solid transparent;outline-offset:3px;transition:outline-color .2s;background:var(--juan);cursor:zoom-in}
+.cand .img img{display:block;width:100%;height:100%;object-fit:cover;transition:transform .6s var(--ease)}
+.cand .img:hover img{transform:scale(1.035)}
+.cand .img span{position:absolute;left:10px;top:10px;font:600 12px var(--sans);background:rgba(251,248,242,.9);padding:2px 9px;border-radius:999px}
+.cand .t{font-size:13px;color:var(--danmo);line-height:1.6}
+.cand.chosen .img{outline-color:var(--cheng)}
+.cand.chosen .cap{background:var(--cheng);border-color:var(--cheng);color:#fff}.cand.chosen .cap[disabled]{opacity:1}
+.redo{grid-column:2;display:flex;gap:10px;align-items:center;flex-wrap:wrap;padding-top:14px;border-top:1px solid var(--line)}
+.redo input{flex:1;min-width:200px;height:40px;border:1px solid var(--line);border-radius:999px;background:var(--juan);padding:0 18px;font-size:14.5px;color:var(--mo);outline:0}
+.redo input:focus{border-color:var(--mo)}
+.note{font-size:14px;color:var(--danmo)}.ok{color:var(--green)}.err{color:#B42318;font-size:14px}
+.grid{display:grid;grid-template-columns:repeat(4,1fr);gap:20px}
+.mini{background:var(--su);border-radius:22px;padding:18px;display:flex;flex-direction:column}
+.mini .ph{aspect-ratio:1/1;border-radius:16px;border:1.5px dashed var(--line);display:grid;place-items:center;color:var(--qianmo);font-size:13px;margin-bottom:14px;background:var(--juan);overflow:hidden;text-align:center;padding:8px}
+.mini .ph.has{border:0;padding:0;cursor:zoom-in}.mini .ph img{width:100%;height:100%;object-fit:cover;display:block}
+.mini b{display:block;font:600 17px/1.5 var(--serif)}
+.mini span{font-size:13px;color:var(--qianmo)}
+.pill{display:inline-flex;align-items:center;gap:6px;align-self:flex-start;height:24px;padding:0 10px;border-radius:999px;font:500 12px var(--sans);margin-top:10px}
+.pill.draw{background:#F6E4D8;color:var(--cheng-ink)}.pill.ok{background:#E3EDE6;color:var(--green)}.pill.wait{background:var(--juan);color:var(--danmo);border:1px solid var(--line)}
+.pill.draw::before{content:"";width:6px;height:6px;border-radius:50%;background:var(--cheng)}
+.empty{background:var(--su);border-radius:22px;padding:28px;color:var(--danmo);font-size:15px}
+.gate{max-width:380px;margin:60px auto;background:var(--su);border-radius:24px;padding:28px}
+.gate b{font:700 22px var(--serif)}.gate label{display:block;font-size:13px;color:var(--danmo);margin:14px 0 6px}
+.gate input,.f input,.f select,.f textarea{width:100%;height:42px;border:1px solid var(--line);border-radius:14px;background:var(--juan);padding:0 14px;font-size:15px;color:var(--mo);outline:0}
+.f textarea{height:auto;min-height:84px;padding:10px 14px;line-height:1.7}
+dialog{border:0;border-radius:24px;padding:0;max-width:560px;width:calc(100% - 32px);background:var(--su);color:var(--mo)}
+dialog::backdrop{background:rgba(28,26,23,.45)}
+.f{padding:28px}.f h3{font:700 22px var(--serif);margin:0 0 6px}.f p{margin:0 0 6px;color:var(--danmo);font-size:14px}
+.f label{display:block;font-size:13px;color:var(--danmo);margin:14px 0 6px}.f .two{display:grid;grid-template-columns:1fr 1fr;gap:12px}
+.f .row{display:flex;gap:10px;justify-content:flex-end;margin-top:22px}
+.lbx{position:fixed;inset:0;background:rgba(28,26,23,.86);display:grid;place-items:center;z-index:50;cursor:zoom-out;padding:24px}.lbx img{max-width:100%;max-height:100%;border-radius:12px}
+@media (prefers-reduced-motion:no-preference){.pick,.mini{animation:rise .7s var(--ease) both}@keyframes rise{from{opacity:0;transform:translateY(12px)}to{opacity:1;transform:none}}}
+@media (prefers-reduced-motion:reduce){.pick,.mini{animation:fade .9s var(--ease) both}@keyframes fade{from{opacity:0}to{opacity:1}}.cand .img img{transition:none}}
+@media(max-width:1000px){.pick{grid-template-columns:1fr}.redo{grid-column:1}.grid{grid-template-columns:1fr 1fr}.intro{grid-template-columns:1fr}}
+@media(max-width:640px){.w{padding-inline:16px}.crumb{display:none}.pick{padding:20px;border-radius:22px;gap:20px}.cands{grid-template-columns:1fr 1fr;gap:12px}.band,.plain{padding-block:48px}.bar h2{font-size:24px}.stats{gap:20px}.stats div b{font-size:28px}.grid{gap:12px}.mini{padding:12px;border-radius:18px}.mini b{font-size:15px}.f .two{grid-template-columns:1fr}}
+</style></head><body>
+<header class="nav"><div class="w"><span class="name">邱懿武</span><nav class="crumb"><span>作品工坊</span>›<span>视觉实验室</span></nav>
+  <div class="end"><button class="cap sm ghost" id="newb" hidden>提一个插画位</button><a class="cap sm ghost" href="feedback.html">任务中心</a></div></div></header>
+<div id="app"></div>
+<dialog id="newd"><form class="f" id="newf"><h3>提一个插画位</h3><p>写清楚放在哪、要什么；提示词给画图的 agent 看。</p>
+  <div class="two"><div><label>所在页面（网址路径）</label><input name="page" value="/" required></div><div><label>位置</label><input name="area" placeholder="首页 · 首屏" required></div></div>
+  <label>插画名</label><input name="title" placeholder="人与 AI，各执一笔" required>
+  <label>要什么（给负责人看）</label><textarea name="body" required placeholder="画什么、表达什么"></textarea>
+  <div class="two"><div><label>比例</label><select name="ratio"><option>4:5</option><option>1:1</option><option>4:3</option><option>3:4</option><option>16:9</option><option>3:2</option><option>2:3</option></select></div>
+    <div><label>底色</label><select name="bg"><option>缃</option><option>赭</option><option>豆青</option><option>天青</option><option>藕荷</option><option>檀</option><option>月白</option><option>绢</option></select></div></div>
+  <label>提示词（给画图的 agent 看）</label><textarea name="prompt"></textarea>
+  <label>交给谁</label><input name="assignee" value="Codex">
+  <div class="err" id="newe"></div>
+  <div class="row"><button type="button" class="cap sm ghost" onclick="this.closest('dialog').close()">取消</button><button class="cap sm dark">提交</button></div></form></dialog>
+<script src="fb-media.js"></script>
+<script>
+(() => {
+  const API = new URLSearchParams(location.search).get('api') || new URL('../', location.href).href, M = window.APFMedia;
+  const $ = s => document.querySelector(s), esc = s => String(s == null ? '' : s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+  const LS = { get: k => { try { return localStorage.getItem('apf:' + k) || ''; } catch (e) { return ''; } }, set: (k, v) => { try { v ? localStorage.setItem('apf:' + k, v) : localStorage.removeItem('apf:' + k); } catch (e) {} } };
+  if (!LS.get('cid')) LS.set('cid', Math.random().toString(36).slice(2) + Date.now().toString(36));
+  const BG = { '缃': 'var(--xian)', '赭': 'var(--zhe)', '豆青': 'var(--douqing)', '天青': 'var(--tianqing)', '藕荷': 'var(--ouhe)', '檀': 'var(--tan)', '月白': 'var(--yuebai)', '绢': 'var(--juan)' };
+  const RATIO = { '1:1': '1/1', '4:3': '4/3', '3:4': '3/4', '4:5': '4/5', '16:9': '16/9', '3:2': '3/2', '2:3': '2/3' };
+  const RNAME = { '1:1': '方形', '4:3': '横幅', '3:4': '竖幅', '4:5': '竖幅', '16:9': '宽幅', '3:2': '横幅', '2:3': '竖幅' };
+  async function api(path, body) {
+    const r = await fetch(API + path, { method: body ? 'POST' : 'GET', headers: { 'Content-Type': 'application/json', 'X-FB-Code': LS.get('code'), 'X-FB-Name': encodeURIComponent(LS.get('name')), 'X-FB-Cid': LS.get('cid') }, body: body ? JSON.stringify(body) : undefined, cache: 'no-store' });
+    const j = await r.json().catch(() => ({ error: '服务器没有响应（' + r.status + '）' })); if (!r.ok) throw Object.assign(new Error(j.error || '出错了'), { status: r.status }); return j; }
+  let ITEMS = [], role = '', PAGE = '';
+  const pageName = p => p === '/' || p === '' ? '首页' : p.replace(/^\/|\/$/g, '').replace(/\.html$/, '') || '首页';
+  const props = it => it.replies.filter(r => r.kind === 'proposal');
+  const lastProp = it => props(it).slice(-1)[0];
+  const lastDec = (it, a) => [...it.replies].reverse().find(r => r.kind === 'decision' && r.meta && (!a || r.meta.action === a));
+  const chosenFile = it => { const d = lastDec(it, 'choose'); return d && d.meta.file; };
+  const phase = it => it.status === 'question' && lastProp(it) && (lastProp(it).meta.options || []).some(o => o.file) ? 'pick'
+    : it.status === 'done' ? 'live' : (it.status === 'review' || (['approved', 'doing'].includes(it.status) && chosenFile(it) && (lastDec(it) || {}).meta.action === 'choose')) ? 'chosen'
+    : it.status === 'wontfix' ? 'off' : 'draw';
+
+  function gate(msg) {
+    $('#app').innerHTML = `<form class="gate"><b>输入通行码</b><p style="margin:6px 0 0;color:var(--danmo);font-size:14px">${msg || '和任务中心用同一个通行码。负责人用管理员通行码登录，才能挑图和打回。'}</p>
+      <label>通行码</label><input type="password" id="gc" autocomplete="off"><label>你的姓名</label><input type="text" id="gn" maxlength="20" value="${esc(LS.get('name'))}">
+      <p class="err" id="ge"></p><button class="cap dark" style="width:100%">进入</button></form>`;
+    $('.gate').onsubmit = async e => { e.preventDefault(); const c = $('#gc').value.trim(), n = $('#gn').value.trim(); if (!c || !n) { $('#ge').textContent = '通行码和姓名都要填'; return; }
+      LS.set('code', c); LS.set('name', n); try { await load(); } catch (er) { LS.set('code', ''); $('#ge').textContent = er.message; } };
+  }
+  async function load() { const r = await api('items?all=1'); role = r.role; ITEMS = r.items.filter(it => it.kind === 'illus').sort((x, y) => x.id - y.id); $('#newb').hidden = false; render(); }
+
+  function pickCard(it) {
+    const sp = it.spec || {}, pr = lastProp(it), opts = (pr.meta.options || []).filter(o => o.file), round = props(it).length, rw = lastDec(it, 'rework');
+    const admin = role === 'admin', ar = RATIO[sp.ratio] || '4/5', bg = BG[sp.bg] || 'var(--juan)';
+    return `<article class="pick" data-id="${it.id}"><div class="slot"><small>${esc(sp.area || pageName(it.page))}</small><h3>${esc(it.title || '插画位 #' + it.id)}</h3><p>${esc(it.body)}</p>
+      <a class="go" href="${esc(it.url || it.page)}" target="_blank" rel="noopener">到页面上看 ↗</a>
+      <div class="meta">${sp.ratio ? `<span>${RNAME[sp.ratio] || ''} ${esc(sp.ratio)}</span>` : ''}${sp.bg ? `<span>底色 ${esc(sp.bg)}</span>` : ''}<span>第 ${round} 轮</span>${rw && round > 1 ? `<span class="last">上一轮你说「${esc(rw.meta.note)}」</span>` : ''}</div>
+      ${sp.prompt || pr.body ? `<details><summary>详情</summary><pre>${sp.prompt ? '提示词：' + esc(sp.prompt) : ''}${pr.body ? '\n\n这一轮的说明：' + esc(pr.body) : ''}</pre></details>` : ''}</div>
+      <div class="cands">${opts.map(o => `<div class="cand"><div class="img" style="aspect-ratio:${ar};background:${bg}"><span>${esc(o.key)}</span><img data-fid="${esc(o.file)}" alt="候选 ${esc(o.key)}"></div>
+        ${o.title ? `<div class="t">${esc(o.title)}</div>` : ''}${admin ? `<button class="cap sm" data-pick="${esc(o.key)}">选这张</button>` : ''}</div>`).join('')}</div>
+      ${admin ? `<div class="redo"><input placeholder="都不行？说一句哪里不对，会按你的话重画" maxlength="400"><button class="cap sm dark" data-redo>重画 <i>→</i></button><span class="note" data-msg></span></div>`
+              : `<div class="redo"><span class="note">等负责人挑。负责人用管理员通行码登录后可以在这里选图或打回。</span></div>`}</article>`;
+  }
+  function mini(it, ph) {
+    const sp = it.spec || {}, f = ph === 'chosen' || ph === 'live' ? chosenFile(it) : null, n = (lastProp(it) && (lastProp(it).meta.options || []).filter(o => o.file).length) || 0;
+    const pill = ph === 'live' ? '<span class="pill ok">已上线</span>' : ph === 'chosen' ? `<span class="pill ok">已选定 · ${it.status === 'review' ? '等你验收' : '待放上网站'}</span>`
+      : it.status === 'open' ? '<span class="pill wait">排队</span>' : `<span class="pill draw">在画${lastDec(it, 'rework') && it.status !== 'open' ? ' · 重画中' : ''}</span>`;
+    return `<div class="mini"><div class="ph${f ? ' has' : ''}" style="${f ? 'background:' + (BG[sp.bg] || 'var(--juan)') : ''}">${f ? `<img data-fid="${esc(f)}" alt="${esc(it.title)}">` : it.status === 'open' ? '排队中' : '正在画'}</div>
+      <b>${esc(it.title || '插画位 #' + it.id)}</b><span>${esc(sp.area || pageName(it.page))}</span>${pill}</div>`;
+  }
+  function render() {
+    const pages = [...new Set(ITEMS.map(it => it.page))];
+    const vis = ITEMS.filter(it => !PAGE || it.page === PAGE), by = k => vis.filter(it => phase(it) === k);
+    const all = k => ITEMS.filter(it => phase(it) === k).length, pick = by('pick'), draw = by('draw'), done = [...by('chosen'), ...by('live')];
+    $('#app').innerHTML = `<section class="w intro"><div><p class="tag">视觉实验室</p><h1>插画在这里长出来。</h1>
+      <p>每个需要插画的位置是一张任务：Claude 写清楚放在哪、要什么、怎么画；Codex 画出几张候选；你挑一张，或者说一句哪里不对让它重画。挑中的图由 agent 放进网站，你最后看一眼上线效果。</p>
+      <div class="flow"><span><b>1</b>提需求</span><i>—</i><span><b>2</b>出候选</span><i>—</i><span><b>3</b>你来挑</span><i>—</i><span><b>4</b>放上网站</span><i>—</i><span><b>5</b>你验收</span></div></div>
+      <div class="stats"><div class="hot"><b>${all('pick')}</b><span>等你挑</span></div><div><b>${all('draw')}</b><span>在画</span></div><div><b>${all('chosen')}</b><span>已选定</span></div><div><b>${all('live')}</b><span>已上线</span></div></div></section>
+      <section class="band"><div class="w"><div class="bar"><h2>等你挑 · ${pick.length}</h2>${pages.length > 1 ? `<div class="filters"><button data-page=""${PAGE ? '' : ' class="on"'}>全部</button>${pages.map(p => `<button data-page="${esc(p)}"${PAGE === p ? ' class="on"' : ''}>${esc(pageName(p))}</button>`).join('')}</div>` : ''}</div>
+        ${pick.length ? pick.map(pickCard).join('') : `<div class="empty">${ITEMS.length ? '现在没有等你挑的图。Codex 画完会出现在这里。' : '还没有插画位。点右上角「提一个插画位」，或者让 Claude 按插画任务单批量提出。'}</div>`}</div></section>
+      <section class="w plain"><div class="bar"><h2>在画 · ${draw.length}</h2><span class="hint">画完会出现在上面，等你挑</span></div>
+        ${draw.length ? `<div class="grid">${draw.map(it => mini(it, 'draw')).join('')}</div>` : '<div class="empty">没有在画的。</div>'}</section>
+      ${done.length ? `<section class="band"><div class="w"><div class="bar"><h2>已选定与已上线 · ${done.length}</h2></div><div class="grid">${done.map(it => mini(it, phase(it))).join('')}</div></div></section>` : ''}`;
+    M.hydrate($('#app'));
+  }
+  $('#app').addEventListener('click', async e => {
+    const fb = e.target.closest('[data-page]'); if (fb) { PAGE = fb.dataset.page; render(); return; }
+    const im = e.target.closest('.cand .img img, .mini .ph img'); if (im && im.src) { const d = document.createElement('div'); d.className = 'lbx'; d.innerHTML = `<img src="${im.src}" alt="${esc(im.alt)}">`; d.onclick = () => d.remove(); document.body.appendChild(d); return; }
+    const card = e.target.closest('.pick'); if (!card) return; const id = +card.dataset.id, msg = card.querySelector('[data-msg]');
+    const pk = e.target.closest('[data-pick]');
+    try {
+      if (pk) { card.querySelectorAll('button').forEach(b => b.disabled = true); await api(`items/${id}/decide`, { action: 'choose', option: pk.dataset.pick });
+        pk.closest('.cand').classList.add('chosen'); pk.textContent = '已选这张 ✓'; if (msg) { msg.className = 'note ok'; msg.textContent = `✓ 已选 ${pk.dataset.pick}，等 agent 放上网站`; } setTimeout(load, 1600); return; }
+      if (e.target.closest('[data-redo]')) { const inp = card.querySelector('.redo input'), note = inp.value.trim();
+        if (!note) { msg.className = 'note err'; msg.textContent = '写一句哪里不对，才能重画'; inp.focus(); return; }
+        card.querySelectorAll('button').forEach(b => b.disabled = true); await api(`items/${id}/decide`, { action: 'rework', note });
+        msg.className = 'note ok'; msg.textContent = '✓ 已打回，会按你的话重画'; setTimeout(load, 1600); }
+    } catch (er) { card.querySelectorAll('button').forEach(b => b.disabled = false); if (msg) { msg.className = 'note err'; msg.textContent = er.message; } }
+  });
+  $('#newb').onclick = () => { $('#newe').textContent = ''; $('#newd').showModal(); };
+  $('#newf').onsubmit = async e => { e.preventDefault(); const f = new FormData(e.target), g = k => (f.get(k) || '').trim();
+    try { await api('items', { page: g('page') || '/', title: g('title'), kind: 'illus', body: g('body'), assignee: g('assignee'), url: '',
+      spec: { area: g('area'), ratio: g('ratio'), bg: g('bg'), prompt: g('prompt') } });
+      $('#newd').close(); e.target.reset(); await load(); } catch (er) { $('#newe').textContent = er.message; } };
+  if (!LS.get('code')) gate(); else load().catch(er => gate(er.status === 401 ? '通行码不对或已更换，请重新输入。' : er.message));
+})();
+</script></body></html>

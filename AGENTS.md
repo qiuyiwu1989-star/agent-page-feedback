@@ -135,6 +135,14 @@ curl -s -X POST -H "X-FB-Code: $FB_CODE" -H "X-FB-Name: Claude" -H "Content-Type
 - **不删别人的批注**：只有管理员可以删除；测试时自己建的批注，测完自己删掉。
 - **补拍截图**：接入前就有的批注，用 `tools/backfill_shots.js` 补拍。补拍时要先滚动到位、等页面稳定再截图，并在批注下说明「截图是补拍的」。
 
+## 视觉实验室（插画）
+
+插画配图走同一套工单，画廊页面在 `{FB_PREFIX}client/lab.html`。
+- **提插画位**（Claude）：`POST items {page, title: 插画名, kind: "illus", body: 要什么（给负责人看）, assignee: "Codex", spec: {area: 位置, ratio: "4:5", bg: 底色, prompt: 提示词}}`。
+- **交候选**（Codex）：按提示词画 2–6 张（建议 4 张），每张一个方案：`POST items/<编号>/propose {summary, options: [{key: "A", title: 一句说明, image: data URL}, …]}`；或 `fb.py propose 编号 方案.json`，方案文件里 `image` 写图片路径。图用 WebP 或 PNG，长边 2048 以内，单张不超过 4 MB。
+- **负责人挑**：「选这张」= 选方案，状态变「可以做」，决定里有选中那张图的附件编号；「重画」= 再改，带原话，按原话改提示词再交一轮。
+- **放上网站**：挑中的图放进网站源文件（主站是仓库 `assets/illustrations/`），按网站自己的流程发布，然后交付报告，等负责人验收。
+
 ## 四、接口速查
 
 接口都在 `{FB_PREFIX}` 下（默认 `/api/fb/`），请求头 `X-FB-Code` 或 `X-FB-Key`（通行码）、`X-FB-Name`（署名，要做 URL 编码）。
