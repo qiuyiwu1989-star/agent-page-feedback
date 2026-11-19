@@ -40,8 +40,9 @@
     for (let n = el.parentElement; n && n !== document.body && n !== document.documentElement; n = n.parentElement) {
       const r = n.getBoundingClientRect(); if (r.width > Math.max(innerWidth, 1440) + 2 || r.height > 1100) break; box = n;
       if (holds(r) && r.width >= Math.max(520, er.width * 1.8) && r.height >= Math.max(260, er.height * 1.8)) break; }
+    // 截图时把被截元素自己的外边距清零：通栏色带（负外边距）和居中容器（自动外边距）原样带进截图会让内容整体左右偏，框就对不上
     const cr = box.getBoundingClientRect(), scale = Math.max(.4, Math.min(1.5, 1400 / Math.max(1, cr.width)));
-    const job = window.htmlToImage.toCanvas(box, { pixelRatio: scale, skipFonts: true, cacheBust: false, backgroundColor: bgOf(box),
+    const job = window.htmlToImage.toCanvas(box, { pixelRatio: scale, skipFonts: true, style: { margin: "0" }, cacheBust: false, backgroundColor: bgOf(box),
       filter: n => !(n && n.id === 'apf-host'), imagePlaceholder: 'data:image/gif;base64,R0lGODlhAQABAIAAAP///wAAACH5BAEAAAAALAAAAAABAAEAAAICRAEAOw==' });
     const cv = await Promise.race([job, new Promise((_, rej) => setTimeout(() => rej(new Error('截图超时')), opt.timeout || 9000))]);
     const k = cv.width / cr.width, x = (er.left - cr.left) * k, y = (er.top - cr.top) * k, w = er.width * k, h = er.height * k;
