@@ -48,7 +48,10 @@
                                  改成「已完成」或「待验收」会当作一次交付报告（note 即改了什么，必填），状态变为「待验收」
   POST items/<id>/decide         负责人的决定（只限管理员口令）{action, option, note}
                                  action: approve 可以做 / choose 选方案 / accept 通过 / rework 再改 / revert 改回来 / wontfix 不改 / reopen 重新打开
-  POST items/<id>/propose        agent 出方案 {summary, options: [{key, title, desc, link}], images} → 状态变为「待决定」
+  POST items/<id>/propose        agent 出方案 {summary, options: [{key, title, desc, link, image}], images} → 状态变为「待决定」
+                                 image：这个方案自己的一张图（data URL），插画的候选图就这样交；最多 8 个方案；负责人「选方案」时记下选中的图
+  插画（视觉实验室）：kind=illus 的工单是一个插画位，POST items 时带 spec {area 位置, ratio 比例, bg 底色, prompt 提示词}；
+                                 画廊页面在 {PREFIX}client/lab.html
   POST items/<id>/report         agent 交付报告 {summary, why, changes: [..], links: [{name, url}], rollback, before, after, images} → 状态变为「待验收」
   GET  prefs / POST prefs        负责人偏好手册 {text, item}；POST prefs/<id>/off 停用一条（管理员）
   GET  queue.json                给 agent 的任务队列：偏好手册 + 可以执行 / 待分诊 / 等负责人 / 待验收
@@ -92,7 +95,7 @@ from collections import defaultdict, deque
 from http.server import ThreadingHTTPServer, BaseHTTPRequestHandler
 from urllib.parse import urlparse, parse_qs, unquote
 
-VERSION = '3.3.0'   # 改版本时同时改 CHANGELOG.md
+VERSION = '3.4.0'   # 改版本时同时改 CHANGELOG.md
 HERE = os.path.dirname(os.path.abspath(__file__))
 DB = os.environ.get('FB_DB', os.path.join(HERE, '..', 'data', 'fb.db'))
 PORT = int(os.environ.get('FB_PORT', '18810'))
@@ -115,7 +118,9 @@ DEPLOY_CMD = os.environ.get('FB_DEPLOY_CMD', '').strip()
 DEPLOY_TIMEOUT = int(os.environ.get('FB_DEPLOY_TIMEOUT', '900'))
 AI_NAMES = {x.strip().lower() for x in os.environ.get('FB_AI_NAMES', 'Claude,Codex').split(',') if x.strip()}
 SUMMARY_URL = os.environ.get('FB_SUMMARY_URL', '')
-KINDS = {'bug': '问题', 'suggest': '建议', 'copy': '文案', 'style': '样式', 'data': '内容有误'}
+KINDS = {'bug': '问题', 'suggest': '建议', 'copy': '文案', 'style': '样式', 'data': '内容有误', 'illus': '插画'}
+RATIOS = ('1:1', '4:3', '3:4', '4:5', '16:9', '3:2', '2:3')
+MAX_OPTS = 8   # 一轮方案最多几个；插画一个方案一张候选图
 PRIOS = {'high': '高', 'mid': '中', 'low': '低'}
 LOCK = threading.Lock()
 FILES = os.path.join(os.path.dirname(DB), 'files')
@@ -174,7 +179,7 @@ def init():
         # 旧库升级：缺的列补上（v1 → v2）
         for t, col, typ in (('items', 'url', 'TEXT'), ('items', 'arole', 'TEXT'), ('items', 'signal', 'TEXT'), ('items', 'signal_note', 'TEXT'),
                             ('items', 'signal_by', 'TEXT'), ('items', 'signal_at', 'REAL'), ('replies', 'role', 'TEXT'), ('replies', 'meta', 'TEXT'), ('items', 'marks', 'TEXT'),
-                            ('items', 'assignee', 'TEXT')):
+                            ('items', 'assignee', 'TEXT'), ('items', 'spec', 'TEXT')):
             if col not in [r[1] for r in c.execute(f'PRAGMA table_info({t})')]: c.execute(f'ALTER TABLE {t} ADD COLUMN {col} {typ}')
         # 过渡写法：正文第一行「【交给 X】」→ 负责方 X
         for r in c.execute("SELECT id, body FROM items WHERE assignee IS NULL AND body LIKE '%【交给%'").fetchall():
@@ -207,6 +212,8 @@ def row_item(c, r):
     d['ai'] = is_ai(d.get('author'))
     try: d['marks'] = json.loads(d['marks']) if d.get('marks') else []
     except ValueError: d['marks'] = []
+    try: d['spec'] = json.loads(d['spec']) if d.get('spec') else None
+    except ValueError: d['spec'] = None
     d.pop('cid', None); return d
 
 def clean_marks(v):
@@ -216,6 +223,14 @@ def clean_marks(v):
         if isinstance(m, dict) and m.get('t') in ('region', 'pen', 'rect'):
             out.append({'t': m['t'], **{k: round(num(m.get(k)), 3) for k in ('x', 'y', 'w', 'h')}})
     return json.dumps(out) if out else None
+
+def clean_spec(v):
+    """插画位的说明：位置、比例、底色、提示词（给画图的 agent 看）、轮次以外的附加说明。"""
+    if not isinstance(v, dict): return None
+    out = {'area': clip(v.get('area'), 80).strip(), 'ratio': v.get('ratio') if v.get('ratio') in RATIOS else '',
+           'bg': clip(v.get('bg'), 24).strip(), 'prompt': clip(v.get('prompt'), 4000).strip()}
+    out = {k: x for k, x in out.items() if x}
+    return json.dumps(out, ensure_ascii=False) if out else None
 
 def is_ai(name): return (name or '').strip().lower() in AI_NAMES
 
@@ -352,10 +367,10 @@ class H(BaseHTTPRequestHandler):
                     if not txt or not page: return self.send(400, {'error': '请写下意见'})
                     now = time.time()
                     asg = clip(d.get('assignee'), 40).strip() or assignee_in(txt)
-                    cur = c.execute('INSERT INTO items (page,url,title,selector,quote,rx,ry,px,py,vw,vh,device,kind,priority,body,author,cid,status,created,updated,arole,marks,assignee) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)',
+                    cur = c.execute('INSERT INTO items (page,url,title,selector,quote,rx,ry,px,py,vw,vh,device,kind,priority,body,author,cid,status,created,updated,arole,marks,assignee,spec) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)',
                         (page, clip(d.get('url'), 1000), clip(d.get('title'), 200), clip(d.get('selector'), 600), clip(d.get('quote'), 400), num(d.get('rx')), num(d.get('ry')), num(d.get('px')), num(d.get('py')),
                          int(num(d.get('vw'))), int(num(d.get('vh'))), clip(d.get('device'), 20), d.get('kind') if d.get('kind') in KINDS else 'suggest',
-                         d.get('priority') if d.get('priority') in PRIOS else 'mid', txt, name, cid, 'open', now, now, role, clean_marks(d.get('marks')), asg or None))
+                         d.get('priority') if d.get('priority') in PRIOS else 'mid', txt, name, cid, 'open', now, now, role, clean_marks(d.get('marks')), asg or None, clean_spec(d.get('spec')) if d.get('kind') == 'illus' else None))
                     add_mentions(c, cur.lastrowid, None, txt, name, now)
                     if d.get('shot'): save_files(c, cur.lastrowid, None, 'shot', [d['shot']], name, MAX_SHOT)
                     save_files(c, cur.lastrowid, None, 'image', d.get('images'), name, MAX_IMG)
@@ -380,13 +395,25 @@ class H(BaseHTTPRequestHandler):
                         if a == 'choose' and not opt: return self.send(400, {'error': '请选一个方案'})
                         if a == 'rework' and not note: return self.send(400, {'error': '请写一下要怎么再改'})
                         text = label + (f' {opt}' if opt else '') + (f'：{note}' if note else '')
-                        add_reply(c, iid, name, cid, role, text, 'decision', {'action': a, 'option': opt, 'note': note}, now)
+                        meta = {'action': a, 'option': opt, 'note': note}
+                        if a == 'choose':
+                            pr = c.execute("SELECT meta FROM replies WHERE item=? AND kind='proposal' ORDER BY id DESC LIMIT 1", (iid,)).fetchone()
+                            hit = next((o for o in ((json.loads(pr['meta']) if pr and pr['meta'] else {}).get('options') or []) if o.get('key') == opt), None)
+                            if hit and hit.get('file'): meta['file'] = hit['file']   # 选中的那张图
+                        add_reply(c, iid, name, cid, role, text, 'decision', meta, now)
                         c.execute('UPDATE items SET status=?, signal=?, signal_note=?, signal_by=?, signal_at=?, updated=? WHERE id=?', (st, a, (opt + ' ' + note).strip(), name, now, now, iid))
                     elif act == 'propose':
-                        opts = [{'key': clip(o.get('key'), 8), 'title': clip(o.get('title'), 120), 'desc': clip(o.get('desc'), 1000), 'link': clip(o.get('link'), 500)} for o in (d.get('options') or [])[:6] if isinstance(o, dict)]
+                        raw = [o for o in (d.get('options') or [])[:MAX_OPTS] if isinstance(o, dict)]
+                        opts = [{'key': clip(o.get('key'), 8), 'title': clip(o.get('title'), 120), 'desc': clip(o.get('desc'), 1000), 'link': clip(o.get('link'), 500)} for o in raw]
                         summary = clip(d.get('summary'), 4000).strip()
                         if not summary and not opts: return self.send(400, {'error': '方案是空的'})
+                        if len({o['key'] for o in opts}) < len(opts): return self.send(400, {'error': '方案的编号（key）不能重复'})
                         rid = add_reply(c, iid, name, cid, role, summary, 'proposal', {'options': opts}, now)
+                        for o, ro in zip(opts, raw):   # 每个方案自己的那张图（插画的候选）
+                            if ro.get('image'):
+                                fid = save_files(c, iid, rid, 'option', [ro['image']], name, MAX_IMG)
+                                if fid: o['file'] = fid[0]
+                        if any(o.get('file') for o in opts): c.execute('UPDATE replies SET meta=? WHERE id=?', (json.dumps({'options': opts}, ensure_ascii=False), rid))
                         save_files(c, iid, rid, 'image', d.get('images'), name, MAX_IMG)
                         c.execute('UPDATE items SET status=?, updated=? WHERE id=?', ('question', now, iid))
                     elif act == 'report':
@@ -425,6 +452,7 @@ class H(BaseHTTPRequestHandler):
                         if not (own or role == 'admin'): return self.send(403, {'error': '只能改自己写的批注'})
                         txt = clip(d.get('body'), 4000).strip() or r['body']
                         c.execute('UPDATE items SET body=?, kind=?, priority=?, updated=? WHERE id=?', (txt, d.get('kind') if d.get('kind') in KINDS else r['kind'], d.get('priority') if d.get('priority') in PRIOS else r['priority'], now, iid))
+                        if 'spec' in d: c.execute('UPDATE items SET spec=? WHERE id=?', (clean_spec(d.get('spec')), iid))
                         if 'assignee' in d: act = 'assign'
                     if act == 'assign':
                         if not (own or role == 'admin'): return self.send(403, {'error': '只有提出人或负责人可以改负责方'})
@@ -751,7 +779,7 @@ MCP_TOOLS = [
     _t('corrections', '打回记录：负责人每次「再改」「改回来」的原话，连同任务和当时的交付。'),
     _t('claim', '认领：把工单改成「处理中」并署名（开工前必须先认领）。', {'id': _I, 'note': {**_S, 'description': '例如「Codex 处理中」'}}, ['id']),
     _t('reply', '在工单里回复（普通讨论，不改状态）。', {'id': _I, 'body': _S}, ['id', 'body']),
-    _t('propose', '出方案，状态变成「待决定」，等负责人选。', {'id': _I, 'summary': _S, 'options': {'type': 'array', 'items': {'type': 'object', 'properties': {'key': _S, 'title': _S, 'desc': _S, 'link': _S}}}}, ['id', 'summary']),
+    _t('propose', '出方案，状态变成「待决定」，等负责人选。', {'id': _I, 'summary': _S, 'options': {'type': 'array', 'items': {'type': 'object', 'properties': {'key': _S, 'title': _S, 'desc': _S, 'link': _S, 'image': {**_S, 'description': '插画候选：这个方案的一张图（data:image/...;base64,...）'}}}}}, ['id', 'summary']),
     _t('report', '交付报告，状态变成「待验收」，等负责人点「通过」。', {'id': _I, 'summary': {**_S, 'description': '改了什么'}, 'why': _S, 'changes': {'type': 'array', 'items': _S, 'description': '改动和逐条验证结果'},
        'links': {'type': 'array', 'items': {'type': 'object', 'properties': {'name': _S, 'url': _S}}}, 'rollback': {**_S, 'description': '回滚编号，例如 deploy#12'}}, ['id', 'summary']),
     _t('crosscheck', '交叉核对别人的交付（只给负责人参考，不改状态、不算验收）。', {'id': _I, 'result': {'type': 'string', 'enum': ['pass', 'fail', 'note']}, 'body': _S}, ['id', 'result', 'body']),

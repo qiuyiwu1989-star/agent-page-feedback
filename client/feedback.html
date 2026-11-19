@@ -179,13 +179,14 @@
     .bar select { flex: 1 1 40%; }
     .board { display: block; overflow: visible; } .board .lane:not(.cur) { display: none; } .board .lane { min-width: 0; } .lanetabs { display: flex; } .rows .board .lane { display: block; }
     .how { grid-template-columns: 1fr; } .cd { grid-template-columns: 1fr; } .shot { border-right: 0; border-bottom: 1px solid var(--line); min-height: 120px; } .acts { margin-left: 0; } .ov { grid-template-columns: 1fr 1fr; } .bar { position: static; } .ev { grid-template-columns: 28px minmax(0, 1fr); } .ev .tm { grid-column: 2; } }
+.opt .optimg{width:120px;height:120px;object-fit:cover;border-radius:10px;border:1px solid #E5E0D6;flex:none}
 </style>
 </head>
 <body>
 <main class="wrap">
   <header class="hero"><nav class="crumb" id="crumb">agent-page-feedback</nav>
     <h1>任务中心 <span class="badge">团队内部</span></h1>
-    <p>每一条意见、每一个需求都是一张卡。人提出和拍板，agent 分诊、修改、交付。把卡拖到另一道就是改状态（拍板类只有负责人能拖）。<button class="lk" id="mcpb">给 agent 接入 ›</button></p>
+    <p>每一条意见、每一个需求都是一张卡。人提出和拍板，agent 分诊、修改、交付。把卡拖到另一道就是改状态（拍板类只有负责人能拖）。<button class="lk" id="mcpb">给 agent 接入 ›</button> <a class="lk" href="lab.html">视觉实验室 ›</a></p>
     <button class="inb" id="inbb" hidden>收件箱 <b id="inbn">0</b></button>
   </header>
   <div id="app"></div>
@@ -224,7 +225,7 @@
   const esc = s => String(s == null ? '' : s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]);
   // 接口地址：默认是本页所在目录的上一级（本页由服务器在 {PREFIX}client/feedback.html 提供）；也可以用 ?api= 指定
   const API = new URLSearchParams(location.search).get('api') || new URL('../', location.href).href, M = window.APFMedia;
-  const KIND = { bug: '问题', suggest: '建议', copy: '文案', style: '样式', data: '内容有误' };
+  const KIND = { bug: '问题', suggest: '建议', copy: '文案', style: '样式', data: '内容有误', illus: '插画' };
   const STAT = { open: '待处理', question: '待决定', approved: '可以做', doing: '处理中', review: '待验收', done: '已完成', wontfix: '不改' };
   const SCOL = { open: '#C2410C', question: '#7C3AED', approved: '#0E7490', doing: '#1D4ED8', review: '#B45309', done: '#15803D', wontfix: '#6B7280' };
   const DECIDE = { open: [['approve', '可以做'], ['wontfix', '不改']], question: [['approve', '按我的意见做'], ['wontfix', '不改']], approved: [['wontfix', '不改']], doing: [],
@@ -424,7 +425,7 @@
   function msg(r, it) { const ai = isAI(r.author), sys = r.kind === 'status', m = sys && r.body.match(/^把状态改为「(.+?)」：?([\s\S]*)$/), meta = r.meta || {};
     const imgs = fs => fs.length ? `<div class="imgs" style="margin-top:6px">${fs.map(f => `<img data-fid="${f.id}" alt="附图">`).join('')}</div>` : '';
     let text;
-    if (r.kind === 'proposal') text = `<div class="rbox"><h4>方案 · 请负责人选择</h4><p>${esc(r.body)}</p>${(meta.options || []).map(o => `<div class="opt"><b>方案 ${esc(o.key)}</b><span>${esc(o.title)}${o.desc ? '：' + esc(o.desc) : ''}${o.link ? ` <a href="${esc(o.link)}" target="_blank" rel="noopener">预览 ↗</a>` : ''}</span>${role === 'admin' && it && it.status === 'question' ? `<button class="btn sm pri" data-dec="choose" data-opt="${esc(o.key)}">选 ${esc(o.key)}</button>` : ''}</div>`).join('')}${imgs(r.files || [])}</div>`;
+    if (r.kind === 'proposal') text = `<div class="rbox"><h4>方案 · 请负责人选择</h4><p>${esc(r.body)}</p>${(meta.options || []).map(o => `<div class="opt"><b>方案 ${esc(o.key)}</b>${o.file ? `<img class="optimg" data-fid="${esc(o.file)}" alt="方案 ${esc(o.key)} 的图">` : ''}<span>${esc(o.title)}${o.desc ? '：' + esc(o.desc) : ''}${o.link ? ` <a href="${esc(o.link)}" target="_blank" rel="noopener">预览 ↗</a>` : ''}</span>${role === 'admin' && it && it.status === 'question' ? `<button class="btn sm pri" data-dec="choose" data-opt="${esc(o.key)}">选 ${esc(o.key)}</button>` : ''}</div>`).join('')}${imgs((r.files || []).filter(f => f.kind !== 'option'))}</div>`;
     else if (r.kind === 'report') { const fb = k => (r.files || []).find(f => f.kind === k), b = fb('before'), a = fb('after');
       text = `<div class="rbox"><h4>交付报告${it && it.status === 'review' ? ' · 待负责人验收' : ''}</h4><p>${esc(r.body)}</p>${meta.why ? `<p class="why">原因：${esc(meta.why)}</p>` : ''}${(meta.changes || []).length ? `<ul>${meta.changes.map(c => `<li>${esc(c)}</li>`).join('')}</ul>` : ''}
         ${b || a ? `<div class="ba">${b ? `<figure><figcaption>改前</figcaption><img data-fid="${b.id}" alt="改前"></figure>` : '<span></span>'}${a ? `<figure><figcaption>改后</figcaption><img data-fid="${a.id}" alt="改后"></figure>` : ''}</div>` : ''}${imgs((r.files || []).filter(f => f.kind === 'image'))}

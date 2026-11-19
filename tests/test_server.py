@@ -336,6 +336,42 @@ class ServerTest(unittest.TestCase):
             self.assertEqual(q['triage'][1]['assignee'], 'Codex')                 # 过渡写法自动识别成负责方
         finally: p.terminate(); p.wait(5)
 
+    def test_visual_lab(self):
+        """插画位：kind=illus 带 spec；每个方案一张候选图；负责人选中时记下那张图；打回带原话；画廊页面可访问。"""
+        it = self.new_item(page='/', title='人与 AI，各执一笔', kind='illus', body='两只手指尖相向', assignee='Codex',
+                           spec={'area': '首页 · 首屏', 'ratio': '4:5', 'bg': '缃', 'prompt': 'one-line ink drawing', 'junk': 'x'})
+        self.assertEqual(it['kind'], 'illus')
+        self.assertEqual(it['spec'], {'area': '首页 · 首屏', 'ratio': '4:5', 'bg': '缃', 'prompt': 'one-line ink drawing'})
+        # 非插画工单不收 spec；比例不在列表里的丢掉
+        self.assertIsNone(self.new_item(spec={'area': 'x'})['spec'])
+        self.assertNotIn('ratio', self.new_item(kind='illus', spec={'area': 'a', 'ratio': '9:7'})['spec'])
+        # 每个方案带一张图，最多 8 个；编号重复不收
+        opts = [{'key': k, 'title': '候选 ' + k, 'image': DATA_PNG} for k in 'ABCDEFGHIJ']
+        st, b, _ = self.req(f'items/{it["id"]}/propose', {'summary': '第 1 轮', 'options': opts}, name='Codex')
+        self.assertEqual(st, 200, b); item = json.loads(b)['item']; pr = item['replies'][-1]
+        self.assertEqual(item['status'], 'question'); self.assertEqual(len(pr['meta']['options']), 8)
+        files = {f['id'] for f in pr['files'] if f['kind'] == 'option'}
+        self.assertEqual(len(files), 8); self.assertTrue(all(o['file'] in files for o in pr['meta']['options']))
+        st, b, _ = self.req(f'items/{it["id"]}/propose', {'summary': 'x', 'options': [{'key': 'A'}, {'key': 'A'}]}, name='Codex')
+        self.assertEqual(st, 400, b)
+        st, b, _ = self.req('files/' + pr['meta']['options'][1]['file']); self.assertEqual(st, 200); self.assertEqual(b, PNG)
+        # 打回：要原话，状态回到「可以做」
+        st, _, _ = self.req(f'items/{it["id"]}/decide', {'action': 'rework', 'note': '石头太圆，像玩具'}, code='admin-code', name='负责人')
+        self.assertEqual(st, 200)
+        # 第 2 轮，选 B：决定里记下 B 那张图
+        st, b, _ = self.req(f'items/{it["id"]}/propose', {'summary': '第 2 轮', 'options': [{'key': k, 'image': DATA_PNG} for k in 'ABCD']}, name='Codex')
+        b_file = json.loads(b)['item']['replies'][-1]['meta']['options'][1]['file']
+        st, _, _ = self.req(f'items/{it["id"]}/decide', {'action': 'choose', 'option': 'B'}, code='team-code')
+        self.assertEqual(st, 403)   # 只有负责人能挑
+        st, b, _ = self.req(f'items/{it["id"]}/decide', {'action': 'choose', 'option': 'B'}, code='admin-code', name='负责人')
+        item = json.loads(b)['item']; dec = item['replies'][-1]
+        self.assertEqual(item['status'], 'approved'); self.assertEqual(dec['meta']['file'], b_file)
+        # 改插画位说明
+        st, b, _ = self.req(f'items/{it["id"]}/edit', {'spec': {'area': '首页 · 首屏', 'ratio': '1:1'}}, code='admin-code')
+        self.assertEqual(json.loads(b)['item']['spec'], {'area': '首页 · 首屏', 'ratio': '1:1'})
+        # 画廊页面
+        with urllib.request.urlopen(self.base + 'client/lab.html') as x: self.assertIn('视觉实验室', x.read().decode())
+
     def test_agent_enroll(self):
         """一次性登记：口令由云端代理加到请求头，谁也不用看到；登记码只能用一次；只存指纹。"""
         def enroll(tok, key):
