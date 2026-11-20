@@ -26,6 +26,9 @@
   FB_NOTIFY_URL   选填。有新批注、新回复、负责人的决定、agent 的方案和交付报告时 POST 通知（飞书群机器人地址，或任意接收 JSON 的地址）
   FB_NOTIFY_KIND  feishu（默认，飞书卡片）或 json（原样 JSON）
   FB_SUMMARY_URL  选填。通知卡片里「任务汇总」按钮的地址，默认 FB_SITE 下的 {PREFIX}client/feedback.html
+  FB_LINKS        选填。批注条「⋯」菜单里的快捷入口（JSON 数组），例如
+                  [{"name":"内部产品管理","url":"/admin/claude/20261120-home.html","roles":["admin"],"dock":true}]
+                  roles 限定哪些身份看得到（admin / team / agent，省略为所有人）；dock 为 true 时批注条上也放一个按钮
   FB_AI_NAMES     选填。哪些署名算 agent（逗号分隔，默认 Claude,Codex）。agent 的普通回复和改状态不推送，方案和交付报告照常推送
 
 工作流（v2，工单式）：
@@ -95,7 +98,7 @@ from collections import defaultdict, deque
 from http.server import ThreadingHTTPServer, BaseHTTPRequestHandler
 from urllib.parse import urlparse, parse_qs, unquote
 
-VERSION = '3.4.1'   # 改版本时同时改 CHANGELOG.md
+VERSION = '3.5.0'   # 改版本时同时改 CHANGELOG.md
 HERE = os.path.dirname(os.path.abspath(__file__))
 DB = os.environ.get('FB_DB', os.path.join(HERE, '..', 'data', 'fb.db'))
 PORT = int(os.environ.get('FB_PORT', '18810'))
@@ -118,6 +121,28 @@ DEPLOY_CMD = os.environ.get('FB_DEPLOY_CMD', '').strip()
 DEPLOY_TIMEOUT = int(os.environ.get('FB_DEPLOY_TIMEOUT', '900'))
 AI_NAMES = {x.strip().lower() for x in os.environ.get('FB_AI_NAMES', 'Claude,Codex').split(',') if x.strip()}
 SUMMARY_URL = os.environ.get('FB_SUMMARY_URL', '')
+
+
+def _links():
+    """FB_LINKS：批注条「⋯」菜单里的快捷入口，JSON 数组 [{"name","url","roles":["admin"],"dock":true}]。
+    roles 省略表示所有登录的人都能看到；dock 为 true 时批注条上也放一个按钮。写错了就当没有。"""
+    try:
+        v = json.loads(os.environ.get('FB_LINKS', '') or '[]')
+    except ValueError:
+        return []
+    out = []
+    for x in v if isinstance(v, list) else []:
+        if isinstance(x, dict) and str(x.get('name', '')).strip() and str(x.get('url', '')).startswith(('/', 'https://', 'http://')):
+            out.append({'name': str(x['name']).strip()[:30], 'url': str(x['url'])[:500],
+                        'roles': [str(r) for r in x.get('roles', [])] if isinstance(x.get('roles'), list) else [], 'dock': bool(x.get('dock'))})
+    return out[:6]
+
+
+LINKS = _links()
+
+
+def links_for(role):
+    return [{'name': l['name'], 'url': l['url'], 'dock': l['dock']} for l in LINKS if not l['roles'] or role in l['roles']]
 KINDS = {'bug': '问题', 'suggest': '建议', 'copy': '文案', 'style': '样式', 'data': '内容有误', 'illus': '插画'}
 RATIOS = ('1:1', '4:3', '3:4', '4:5', '16:9', '3:2', '2:3')
 MAX_OPTS = 8   # 一轮方案最多几个；插画一个方案一张候选图
@@ -353,7 +378,7 @@ class H(BaseHTTPRequestHandler):
         if method == 'POST' and limited(WRITES, ip, 120, 60): return self.send(429, {'error': '操作太频繁，稍等一下'})
         try:
             with LOCK, db() as c:
-                if method == 'GET' and p == 'ping': return self.send(200, {'ok': True, 'role': role, 'version': VERSION})
+                if method == 'GET' and p == 'ping': return self.send(200, {'ok': True, 'role': role, 'version': VERSION, 'links': links_for(role)})
                 if method == 'GET' and p == 'items':
                     sql, a = 'SELECT * FROM items WHERE deleted=0', []
                     if qs.get('page') and not qs.get('all'): sql += ' AND page=?'; a.append(qs['page'])
@@ -361,7 +386,7 @@ class H(BaseHTTPRequestHandler):
                     rows = [row_item(c, r) for r in c.execute(sql + ' ORDER BY id DESC LIMIT 2000', a)]
                     mine = {r['id'] for r in c.execute('SELECT id FROM items WHERE cid=? AND cid<>""', (cid,))} if cid else set()
                     for r in rows: r['mine'] = r['id'] in mine
-                    return self.send(200, {'items': rows, 'role': role})
+                    return self.send(200, {'items': rows, 'role': role, 'links': links_for(role)})
                 if method == 'POST' and p == 'items':
                     d = self.body(); txt = clip(d.get('body'), 4000).strip(); page = clip(d.get('page'), 300).strip()
                     if not txt or not page: return self.send(400, {'error': '请写下意见'})

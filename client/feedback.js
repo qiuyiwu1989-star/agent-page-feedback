@@ -50,6 +50,8 @@
   .dock .main { background: #F59E0B; color: #1f2430; font-weight: 600; }
   .dock .main:hover { background: #FBBF24; }
   .dock.picking .main { background: #fff; }
+  .dock a.lkb { color: inherit; text-decoration: none; padding: 7px 12px; border-radius: 999px; display: flex; align-items: center; gap: 6px; white-space: nowrap; background: rgba(255,255,255,.1); }
+  .dock a.lkb:hover { background: rgba(255,255,255,.2); }
   .dock .n { min-width: 18px; height: 18px; padding: 0 5px; border-radius: 9px; background: rgba(255,255,255,.18); font-size: 11.5px; display: inline-grid; place-items: center; }
   .dock .more { position: relative; }
   .menu { position: absolute; bottom: calc(100% + 8px); left: 0; background: #fff; color: #1f2430; border-radius: 10px; box-shadow: 0 8px 28px rgba(15,20,35,.22); padding: 6px; min-width: 180px; display: none; }
@@ -151,7 +153,7 @@
   @media (max-width: 640px) { .dock { left: 8px; bottom: 8px; } .dock .lbl { display: none; } .drawer { width: 100vw; } }
   </style>
   <div class="pins"></div><div class="hl"><b></b></div>
-  <div class="dock" hidden><button class="main" title="点选页面上要批注的位置"><span>✎</span><span class="lbl">批注</span></button><button class="boxb" title="拖一个框，框出要改的区域"><span>▭</span><span class="lbl">框选</span></button><button class="cnt" title="本页批注"><span class="lbl">本页</span><span class="n">0</span></button><span class="more"><button class="mb" title="更多">⋯</button><div class="menu"><div class="who"></div><button data-a="pins">隐藏页面上的标记</button><button data-a="all">全站批注</button><a data-a="sum" target="_blank">汇总页 / 导出给 agent ↗</a><button data-a="name">改姓名</button><button data-a="out">退出批注</button></div></span></div>
+  <div class="dock" hidden><button class="main" title="点选页面上要批注的位置"><span>✎</span><span class="lbl">批注</span></button><button class="boxb" title="拖一个框，框出要改的区域"><span>▭</span><span class="lbl">框选</span></button><button class="cnt" title="本页批注"><span class="lbl">本页</span><span class="n">0</span></button><span class="more"><button class="mb" title="更多">⋯</button><div class="menu"><div class="who"></div><button data-a="pins">隐藏页面上的标记</button><button data-a="all">全站批注</button><a data-a="sum" target="_blank">汇总页 / 导出给 agent ↗</a><span class="lks"></span><button data-a="name">改姓名</button><button data-a="out">退出批注</button></div></span></div>
   <div class="drawer"><div class="dh"><div class="t"><b>批注</b><button class="x" title="关闭">×</button></div><div class="tabs"></div></div><div class="list"></div></div>
   <div class="toast"></div>`;
   const media = new Promise(r => { if (window.APFMedia) return r(); const sc = document.createElement('script'); sc.src = new URL('fb-media.js', SRC).href; sc.onload = sc.onerror = () => r(); document.head.append(sc); });
@@ -205,7 +207,7 @@
   function movePins() { pinsEl.querySelectorAll('.pin').forEach(d => { const it = items.find(x => x.id === +d.dataset.id), p = it && locate(it); if (p) { d.style.left = p.x + 'px'; d.style.top = p.y + 'px'; } }); }
   function counts() { const n = items.filter(open).length; $('.cnt .n').textContent = n; }
 
-  async function load() { page = pageKey(); try { const r = await api('items?page=' + encodeURIComponent(page)); role = r.role; items = r.items; counts(); renderPins(); if (drawer.classList.contains('on')) renderList(); }
+  async function load() { page = pageKey(); try { const r = await api('items?page=' + encodeURIComponent(page)); role = r.role; items = r.items; links(r.links); counts(); renderPins(); if (drawer.classList.contains('on')) renderList(); }
     catch (e) { if (e.status === 401) { LS.set('code', ''); dock.hidden = true; login('口令已失效，请重新输入。'); } } }
 
   // ---------- 点选 ----------
@@ -357,6 +359,11 @@
     if (a === 'all') openDrawer('all'); if (a === 'name') askName();
     if (a === 'out') { if (!confirm('退出后左下角的批注条会隐藏。之后用带 ?fb=1 的链接可以重新进入。')) return; LS.set('code', ''); host.remove(); } };
 
+  let linkKey = null;   // 站点配置的快捷入口（服务器 FB_LINKS，按身份过滤）：放进「⋯」菜单，dock 为 true 的也放到批注条上
+  function links(ls) { ls = Array.isArray(ls) ? ls : []; const k = JSON.stringify(ls); if (k === linkKey) return; linkKey = k;
+    $('.lks').innerHTML = ls.map(l => `<a href="${esc(l.url)}">${esc(l.name)} ↗</a>`).join('');
+    dock.querySelectorAll('a.lkb').forEach(x => x.remove());
+    ls.filter(l => l.dock).forEach(l => { const a = document.createElement('a'); a.className = 'lkb'; a.href = l.url; a.title = l.name; a.innerHTML = `<span>▦</span><span class="lbl">${esc(l.name)}</span>`; dock.insertBefore(a, $('.more')); }); }
   function start() { dock.hidden = false; $('.who').textContent = '我是 ' + LS.get('name') + (role === 'admin' ? ' · 负责人' : ''); $('[data-a="pins"]').textContent = showPins ? '隐藏页面上的标记' : '显示页面上的标记';
     load().then(() => { if (focusId) { const u = new URL(location.href); u.searchParams.delete('fbid'); history.replaceState(history.state, '', u); page = pageKey(); setTimeout(() => { openDrawer('page', focusId); const it = items.find(x => x.id === focusId), p = it && locate(it); if (p) scrollTo({ top: Math.max(0, p.y - innerHeight / 3) }); }, 600); } });
     setInterval(() => { if (!document.hidden) load(); }, 60000);

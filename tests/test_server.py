@@ -33,7 +33,7 @@ class ServerTest(unittest.TestCase):
                     'open(%r, "a").write("|".join([e["FB_DEPLOY_ACTION"], e["FB_DEPLOY_ID"], e["FB_DEPLOY_REF"], e["FB_ROLLBACK_ID"], str("FB_TEAM_CODE" in e)]) + "\\n")\n'
                     'time.sleep(float(e["FB_DEPLOY_REF"][5:]) if e["FB_DEPLOY_REF"].startswith("slow-") else 0)\n'
                     'print("done", e["FB_DEPLOY_ID"]); sys.exit(1 if e["FB_DEPLOY_REF"] == "bad" else 0)\n' % cls.log)
-        env = dict(os.environ, FB_TEAM_CODE='team-code', FB_ADMIN_CODE='admin-code', FB_AGENT_CODE='agent-key', FB_AGENT_ENROLL='enroll-once', FB_STUCK_MIN='0', FB_DB=os.path.join(cls.tmp.name, 'fb.db'), FB_PORT=str(cls.port), FB_SITE='https://example.com/',
+        env = dict(os.environ, FB_LINKS=json.dumps([{'name': '内部看板', 'url': '/admin/home.html', 'roles': ['admin'], 'dock': True}, {'name': '规范', 'url': 'https://example.com/spec'}, {'name': '坏的', 'url': 'javascript:alert(1)'}]), FB_TEAM_CODE='team-code', FB_ADMIN_CODE='admin-code', FB_AGENT_CODE='agent-key', FB_AGENT_ENROLL='enroll-once', FB_STUCK_MIN='0', FB_DB=os.path.join(cls.tmp.name, 'fb.db'), FB_PORT=str(cls.port), FB_SITE='https://example.com/',
                    FB_NOTIFY_URL=f'http://127.0.0.1:{cls.hook.server_port}/hook', FB_DEPLOY_CMD=f'{sys.executable} -I {script}')
         cls.proc = subprocess.Popen([sys.executable, '-I', os.path.join(ROOT, 'server', 'fb_server.py')], env=env, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
         cls.base = f'http://127.0.0.1:{cls.port}/api/fb/'
@@ -62,6 +62,11 @@ class ServerTest(unittest.TestCase):
         self.assertEqual(self.req('ping', code='wrong')[0], 401)
         self.assertEqual(json.loads(self.req('ping')[1])['role'], 'team')
         self.assertEqual(json.loads(self.req('ping', code='admin-code')[1])['role'], 'admin')
+        # 快捷入口：按身份过滤，不合法的地址丢掉
+        self.assertEqual([l['name'] for l in json.loads(self.req('ping', code='admin-code')[1])['links']], ['内部看板', '规范'])
+        self.assertEqual(json.loads(self.req('ping', code='admin-code')[1])['links'][0]['dock'], True)
+        self.assertEqual([l['name'] for l in json.loads(self.req('ping')[1])['links']], ['规范'])
+        self.assertEqual([l['name'] for l in json.loads(self.req('items?page=/x')[1])['links']], ['规范'])
 
     def test_client_files_are_public(self):
         for f in ('fb-loader.js', 'feedback.js', 'fb-media.js', 'feedback.html', 'vendor/html-to-image.min.js'):
