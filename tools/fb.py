@@ -18,6 +18,10 @@
   python3 tools/fb.py reply 编号 "内容"
   python3 tools/fb.py propose 编号 方案.json    {"summary": "...", "options": [{"key": "A", "title": "...", "desc": "...", "link": "...", "image": "a.webp"}]}
                                               插画候选：每个方案的 image 写图片路径（相对方案文件），一个方案一张图，最多 8 个
+  python3 tools/fb.py ask 决定.json           把一件要负责人拍板的事放上决策台（不依附工单）：
+                                              {"title": "要定什么", "context": "背景", "area": "服务器", "rec": "A", "assignee": "定了交给谁",
+                                               "options": [{"key": "A", "title": "...", "desc": "...", "link": "..."}]}；加 "item": 编号 就是在那张工单上出方案
+  python3 tools/fb.py desk                      决策台：等负责人定的、最近定过的（做到哪了）
   python3 tools/fb.py pref "一句话标准" [--item 编号]
   python3 tools/fb.py digest "标题" 内容.md [--button "文字=地址"]...
   python3 tools/fb.py deploy [--ref 提交号] [--item 编号]... [--note 说明]       等发布结束，打印发布编号（回滚编号）
@@ -129,6 +133,8 @@ def main():
     p = sub.add_parser('crosscheck'); p.add_argument('item', type=int); p.add_argument('result', choices=['pass', 'fail', 'note']); p.add_argument('text')
     p = sub.add_parser('assign'); p.add_argument('item', type=int); p.add_argument('assignee', nargs='?', default='')
     p = sub.add_parser('propose'); p.add_argument('item', type=int); p.add_argument('file')
+    p = sub.add_parser('ask'); p.add_argument('file')
+    sub.add_parser('desk')
     p = sub.add_parser('pref'); p.add_argument('text'); p.add_argument('--item', type=int)
     p = sub.add_parser('digest'); p.add_argument('title'); p.add_argument('file'); p.add_argument('--button', action='append', default=[])
     p = sub.add_parser('deploy'); p.add_argument('--ref', default=''); p.add_argument('--item', type=int, action='append', default=[]); p.add_argument('--note', default='')
@@ -164,6 +170,20 @@ def main():
                 ext = os.path.splitext(fp)[1].lower().lstrip('.'); mime = {'jpg': 'jpeg'}.get(ext, ext)
                 with open(fp, 'rb') as f: o['image'] = f'data:image/{mime};base64,' + base64.b64encode(f.read()).decode()
         print('已出方案 #%d，状态：待决定' % call(f'items/{a.item}/propose', body)['item']['id']); return
+    if a.cmd == 'ask':
+        with open(a.file, encoding='utf-8') as f: body = json.load(f)
+        body.setdefault('assignee', NAME)
+        it = call('desk', body)['item']; print(f'已放上决策台 #{it["id"]}：{it.get("title") or ""}（定了以后交给 {it.get("assignee") or "没有负责方"}）'); return
+    if a.cmd == 'desk':
+        d = call('desk')
+        print(f'等负责人定 {len(d["open"])} 件：')
+        for x in d['open']: print(f'  #{x["id"]} {x.get("area") or ""} {x.get("title") or (x.get("body") or "")[:60]}  推荐 {x.get("rec") or "-"}')
+        st = {'approved': '等人接', 'doing': '在做', 'review': '等验收', 'done': '已完成', 'wontfix': '不做', 'question': '又出了方案'}
+        print(f'最近定过 {len(d["decided"])} 件：')
+        for x in d['decided']: print(f'  #{x["id"]} {st.get(x["status"], x["status"])} {x.get("assignee") or "-"}  {(x.get("decision") or {}).get("text", "")[:60]}')
+        old = [x for x in d.get('legacy') or [] if x['status'] == 'open']
+        if old: print(f'以前的决策台还没人接 {len(old)} 件：' + '、'.join(f'#{x["id"]} {x["key"]} {x["choice"][:20]}' for x in old))
+        return
     if a.cmd == 'pref': print('已记入偏好手册：' + call('prefs', {'text': a.text, 'item': a.item})['pref']['text']); return
     if a.cmd == 'digest':
         with open(a.file, encoding='utf-8') as f: md = f.read()

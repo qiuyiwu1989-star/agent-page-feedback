@@ -1,0 +1,149 @@
+<!doctype html><html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="robots" content="noindex,nofollow"><title>决策台 · 任务中心</title>
+<!-- 决策台：任务中心上的一个视图。要负责人拍板的事 = 「待决定」的工单（agent 用 propose / ask_owner 放上来，带背景、选项、推荐）。
+     负责人点一个选项就是正式决定（decide），工单变成「可以做」、进负责方的工作清单；「已定」里一直看得到做到哪了。数据和权限全部沿用任务中心的接口。 -->
+<style>
+:root{--page:#EAE3D5;--juan:#F3EEE3;--su:#FBF8F2;--mo:#1C1A17;--danmo:#5C564E;--qianmo:#837A6E;--line:#DDD4C3;--cheng:#E2622A;--cheng-ink:#A84818;--green:#2F6D4F;--green-bg:#E3EDE4;--amber:#8A5A00;--amber-bg:#F6E7C8;--red:#A23B2A;--red-bg:#F5DCD5;
+--serif:"Noto Serif SC","Songti SC","STSong",serif;--sans:-apple-system,"PingFang SC","Noto Sans SC","Microsoft YaHei",sans-serif;--ease:cubic-bezier(.2,.7,.2,1)}
+*{box-sizing:border-box}html{color-scheme:light}body{margin:0;background:var(--juan);color:var(--mo);font:16px/1.75 var(--sans);letter-spacing:.02em;-webkit-font-smoothing:antialiased}
+a{color:inherit}button,input,textarea{font:inherit}button{cursor:pointer}
+.w{max-width:960px;margin:0 auto;padding-inline:clamp(16px,4vw,40px)}
+.nav .w{display:flex;align-items:center;gap:16px;min-height:68px;flex-wrap:wrap}
+.crumb{font-size:14px;color:var(--danmo)}.crumb b{color:var(--mo);font:700 17px var(--serif);letter-spacing:.12em;margin-right:8px}
+.end{margin-left:auto;display:flex;gap:8px}
+.cap{display:inline-flex;align-items:center;justify-content:center;gap:6px;min-height:38px;padding:4px 16px;border-radius:999px;border:1px solid var(--mo);font:500 14px var(--sans);background:transparent;color:var(--mo);text-decoration:none;transition:transform .12s var(--ease),background .2s;text-align:left}
+.cap:hover{transform:translateY(-1px)}.cap[disabled]{opacity:.5;cursor:default;transform:none}
+.cap.dark{background:var(--mo);color:var(--juan)}.cap.ghost{border-color:var(--line);background:var(--su);color:var(--danmo)}.cap.sm{min-height:32px;padding:2px 13px;font-size:13px}
+.intro{padding-block:28px 24px}
+h1{font:700 clamp(28px,4.4vw,42px)/1.35 var(--serif);letter-spacing:.05em;margin:0 0 10px}
+.intro p{margin:0;color:var(--danmo);max-width:40em}
+.stats{display:flex;gap:28px;margin-top:22px;flex-wrap:wrap}.stats div b{display:block;font:700 30px/1 var(--serif);font-variant-numeric:tabular-nums}.stats div span{font-size:13px;color:var(--danmo)}
+.stats .hot b{color:var(--cheng)}.stats .warn b{color:var(--amber)}
+.tabs{display:flex;gap:8px;flex-wrap:wrap;margin:8px 0 20px}
+.tabs button{padding:6px 15px;border-radius:999px;background:var(--su);border:1px solid var(--line);font-size:14px;color:var(--danmo)}
+.tabs button.on{background:var(--mo);border-color:var(--mo);color:var(--juan)}
+.card{background:var(--su);border-radius:22px;padding:24px clamp(18px,3vw,30px);margin-bottom:16px}
+.no{font:500 13px var(--sans);letter-spacing:.08em;color:var(--cheng-ink);display:flex;flex-wrap:wrap;gap:4px 12px}.no span{color:var(--qianmo);letter-spacing:0}
+.card h3{font:700 21px/1.5 var(--serif);letter-spacing:.03em;margin:6px 0 8px}
+.ctx{margin:0 0 14px;color:var(--danmo);white-space:pre-wrap;word-break:break-word}
+.opts{display:grid;gap:10px;margin:0 0 14px}
+.opt{border:1px solid var(--line);border-radius:16px;padding:12px 14px;display:grid;grid-template-columns:minmax(0,1fr) auto;gap:6px 14px;align-items:center;background:#fff}
+.opt.rec{border-color:var(--cheng);box-shadow:0 0 0 1px var(--cheng) inset}
+.opt .t{font-weight:600}.opt .t i{font-style:normal;font:600 12px var(--sans);color:#fff;background:var(--cheng);border-radius:999px;padding:1px 8px;margin-left:6px;vertical-align:2px}
+.opt .d{grid-column:1;color:var(--danmo);font-size:14.5px;white-space:pre-wrap}.opt .d a{color:var(--cheng-ink)}
+.opt .cap{grid-column:2;grid-row:1/span 2}
+.opt.chosen{border-color:var(--green);background:var(--green-bg)}
+.more{display:flex;gap:10px;flex-wrap:wrap;align-items:center;font-size:14px}
+.more a{color:var(--danmo)}
+textarea{width:100%;min-height:64px;border:1px solid var(--line);border-radius:14px;padding:10px 12px;background:#fff;resize:vertical;margin-bottom:10px}
+.acts{display:flex;gap:8px;flex-wrap:wrap;align-items:center}
+.msg{font-size:13.5px;color:var(--red)}
+.ro{font-size:14px;color:var(--qianmo);background:var(--juan);border-radius:12px;padding:8px 12px}
+.done{margin-top:6px;padding:12px 14px;border-radius:14px;background:var(--juan);font-size:15px}
+.steps{display:flex;gap:0;margin:12px 0 2px;font-size:13px;color:var(--qianmo);flex-wrap:wrap;row-gap:6px}
+.steps span{display:flex;align-items:center;gap:6px;padding-right:10px}.steps span::before{content:"";width:9px;height:9px;border-radius:50%;border:1.5px solid var(--line);background:var(--su)}
+.steps span.on{color:var(--mo)}.steps span.on::before{background:var(--green);border-color:var(--green)}
+.steps span.now{color:var(--mo);font-weight:600}.steps span.now::before{background:var(--cheng);border-color:var(--cheng)}
+.pill{display:inline-block;font-size:12.5px;border-radius:999px;padding:1px 10px;margin-left:6px;vertical-align:1px}
+.pill.ok{background:var(--green-bg);color:var(--green)}.pill.wait{background:var(--amber-bg);color:var(--amber)}.pill.off{background:var(--sunken,#ECE6DA);color:var(--danmo)}.pill.bad{background:var(--red-bg);color:var(--red)}
+.leg{display:grid;grid-template-columns:auto minmax(0,1fr) auto;gap:4px 14px;align-items:baseline;padding:10px 0;border-top:1px solid var(--line);font-size:15px}
+.leg:first-child{border-top:0}.leg b{font:600 13px var(--sans);color:var(--cheng-ink)}.leg small{color:var(--qianmo);font-size:13px;text-align:right}
+.empty{padding:28px;text-align:center;color:var(--danmo);background:var(--su);border-radius:22px}
+.gate{max-width:380px;margin:40px auto;background:var(--su);border-radius:22px;padding:26px}
+.gate label{display:block;font-size:13px;color:var(--danmo);margin:12px 0 4px}.gate input{width:100%;height:42px;border:1px solid var(--line);border-radius:12px;padding:0 12px;background:#fff}
+.err{color:var(--red);font-size:13.5px;min-height:1em}
+@media (max-width:560px){.opt{grid-template-columns:minmax(0,1fr)}.opt .cap{grid-column:1;grid-row:auto;justify-self:start}.stats{gap:20px}.leg{grid-template-columns:auto minmax(0,1fr)}.leg small{grid-column:2;text-align:left}}
+</style></head><body>
+<header class="nav"><div class="w"><span class="crumb"><b>决策台</b>任务中心</span><div class="end"><a class="cap sm ghost" href="feedback.html">任务中心</a></div></div></header>
+<main class="w" id="app"></main>
+<script>
+(() => {
+  const API = new URLSearchParams(location.search).get('api') || new URL('../', location.href).href;
+  const $ = s => document.querySelector(s), esc = s => String(s == null ? '' : s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+  const rich = s => esc(s).replace(/\*\*(.+?)\*\*/g, '<b>$1</b>').replace(/(https?:\/\/[^\s<]+)/g, '<a href="$1" target="_blank" rel="noopener">$1</a>');
+  const LS = { get: k => { try { return localStorage.getItem('apf:' + k) || ''; } catch (e) { return ''; } }, set: (k, v) => { try { v ? localStorage.setItem('apf:' + k, v) : localStorage.removeItem('apf:' + k); } catch (e) {} } };
+  if (!LS.get('cid')) LS.set('cid', Math.random().toString(36).slice(2) + Date.now().toString(36));
+  async function api(path, body) {
+    const r = await fetch(API + path, { method: body ? 'POST' : 'GET', headers: { 'Content-Type': 'application/json', 'X-FB-Code': LS.get('code'), 'X-FB-Name': encodeURIComponent(LS.get('name')), 'X-FB-Cid': LS.get('cid') }, body: body ? JSON.stringify(body) : undefined, cache: 'no-store' });
+    const j = await r.json().catch(() => ({ error: '服务器没有响应（' + r.status + '）' })); if (!r.ok) throw Object.assign(new Error(j.error || '出错了'), { status: r.status }); return j; }
+  const when = t => { const d = new Date(t * 1000), s = (Date.now() / 1000 - t); return s < 3600 ? Math.max(1, Math.round(s / 60)) + ' 分钟前' : s < 86400 ? Math.round(s / 3600) + ' 小时前' : (d.getMonth() + 1) + '月' + d.getDate() + '日 ' + d.toTimeString().slice(0, 5); };
+  const link = id => 'feedback.html#item-' + id;
+  let D = null, role = '', TAB = (() => { try { return sessionStorage.getItem('apf:desk') || 'open'; } catch (e) { return 'open'; } })();
+
+  function gate(msg) {
+    $('#app').innerHTML = `<form class="gate"><b>输入通行码</b><p style="margin:6px 0 0;color:var(--danmo);font-size:14px">${msg || '和任务中心用同一个通行码。负责人用管理员通行码登录，点一下就算定了。'}</p>
+      <label>通行码</label><input type="password" id="gc" autocomplete="off"><label>你的姓名</label><input type="text" id="gn" maxlength="20" value="${esc(LS.get('name'))}">
+      <p class="err" id="ge"></p><button class="cap dark" style="width:100%">进入</button></form>`;
+    $('.gate').onsubmit = async e => { e.preventDefault(); const c = $('#gc').value.trim(), n = $('#gn').value.trim(); if (!c || !n) { $('#ge').textContent = '通行码和姓名都要填'; return; }
+      LS.set('code', c); LS.set('name', n); try { await load(); } catch (er) { LS.set('code', ''); $('#ge').textContent = er.message; } };
+  }
+  async function load() { const r = await api('desk?days=60'); D = r; role = r.role; render(); }
+
+  // 定了以后做到哪了：定了 → 有人接 → 交付 → 你验收
+  function stage(it) {
+    const s = it.status, a = it.assignee ? '交给 ' + esc(it.assignee) : '还没有负责方';
+    if (s === 'wontfix') return { pill: '<span class="pill off">不做</span>', at: -1 };
+    if (s === 'done') return { pill: '<span class="pill ok">已完成</span>', at: 4 };
+    if (s === 'review') return { pill: `<span class="pill wait">交付了 · 等你验收</span>`, at: 3 };
+    if (s === 'doing') return { pill: `<span class="pill ok">${esc(it.doing_by || it.assignee || '有人')} 在做${it.doing_at ? ' · ' + when(it.doing_at) + '接的' : ''}</span>`, at: 2 };
+    if (s === 'approved') { const old = it.decision && (Date.now() / 1000 - it.decision.at) > 6 * 3600;
+      return { pill: `<span class="pill ${old ? 'bad' : 'wait'}">等人接 · ${a}${old ? ' · 超过 6 小时' : ''}</span>`, at: 1 }; }
+    if (s === 'question') return { pill: '<span class="pill wait">又出了新方案，在「待定」里</span>', at: 0 };
+    return { pill: `<span class="pill off">${esc(s)}</span>`, at: 1 };
+  }
+  const steps = at => at < 0 ? '' : `<div class="steps">${['你定了', '有人接', '交付', '你验收'].map((t, i) => `<span class="${i < at ? 'on' : i === at ? 'now' : ''}">${t}</span>`).join('')}</div>`;
+
+  function head(it) {
+    return `<div class="no">#${it.id}${it.area ? ' · ' + esc(it.area) : ''}<span>${esc(it.proposer || it.author || '')}${it.proposed_at ? ' · ' + when(it.proposed_at) : ''}${it.assignee ? ' · 定了以后交给 ' + esc(it.assignee) : ''}</span></div>
+      <h3>${esc(it.title || (it.body || '').split('\n')[0].slice(0, 80) || '工单 #' + it.id)}</h3>`;
+  }
+  function openCard(it) {
+    const admin = role === 'admin', opts = it.options || [];
+    const ctx = [it.summary, it.title && it.body && it.body !== it.title && it.body !== it.summary ? it.body : ''].filter(Boolean).join('\n\n');
+    return `<article class="card" data-id="${it.id}">${head(it)}${ctx ? `<p class="ctx">${rich(ctx)}</p>` : ''}
+      <div class="opts">${opts.map(o => `<div class="opt${o.key === it.rec ? ' rec' : ''}"><div class="t">${esc(o.key)}. ${esc(o.title || '')}${o.key === it.rec ? '<i>推荐</i>' : ''}</div>
+        ${o.desc || o.link ? `<div class="d">${rich(o.desc || '')}${o.link ? ` <a href="${esc(o.link)}" target="_blank" rel="noopener">看详情 ↗</a>` : ''}</div>` : ''}
+        ${admin ? `<button class="cap sm${o.key === it.rec ? ' dark' : ''}" data-choose="${esc(o.key)}">选 ${esc(o.key)}</button>` : ''}</div>`).join('') || '<div class="ro">这一轮没有列选项，看说明、写一句你的决定。</div>'}</div>
+      ${admin ? `<textarea placeholder="想补一句就写这里（可不写）；不选上面的，就写你要怎么做，再点「按我写的做」" maxlength="2000"></textarea>
+        <div class="acts"><button class="cap sm ghost" data-own>按我写的做</button><button class="cap sm ghost" data-no>先不做</button><a class="cap sm ghost" href="${link(it.id)}">在任务中心打开</a><span class="msg"></span></div>`
+      : `<div class="ro">等负责人定。负责人用管理员通行码登录后，在这里点一下就算定了。</div><div class="more" style="margin-top:10px"><a href="${link(it.id)}">在任务中心打开 ›</a></div>`}</article>`;
+  }
+  function doneCard(it) {
+    const d = it.decision || {}, st = stage(it), ch = (it.options || []).find(o => o.key === d.option);
+    const what = d.action === 'choose' ? `选 ${esc(d.option)}${ch ? '：' + esc(ch.title) : ''}` : d.action === 'wontfix' ? '先不做' : d.action === 'approve' ? '可以做' : esc((d.text || '').split('：')[0]);
+    return `<article class="card" data-id="${it.id}">${head(it)}
+      <div class="done">你定了：<b>${what}</b>${d.note ? `；${esc(d.note)}` : ''} <span style="color:var(--qianmo);font-size:13px">（${d.at ? when(d.at) : ''}）</span>${st.pill}</div>${steps(st.at)}
+      ${it.report ? `<p class="ctx" style="margin:10px 0 0;font-size:14.5px">交付：${rich(it.report.summary)}${(it.report.links || []).map(l => ` <a href="${esc(l.url)}" target="_blank" rel="noopener">${esc(l.name || '看结果')} ↗</a>`).join('')}</p>` : ''}
+      <div class="more" style="margin-top:10px"><a href="${link(it.id)}">在任务中心打开 ›</a></div></article>`;
+  }
+  function legacyList(L) {
+    const lab = s => s === 'done' ? '<span class="pill ok">已完成</span>' : s === 'review' ? '<span class="pill wait">等你验收</span>' : s === 'doing' ? '<span class="pill ok">在做</span>' : s === 'approved' ? '<span class="pill wait">可以做</span>' : s === 'wontfix' ? '<span class="pill off">不做</span>' : '<span class="pill bad">还没人接</span>';
+    return `<div class="card"><p class="ctx" style="margin-bottom:8px">以前的决策台把你的选择存成了一条批注。这些记录还在，状态照实显示；「还没人接」的，负责的 agent 会在工作清单里看到。</p>
+      ${L.map(x => `<div class="leg"><b>${esc(x.key)}</b><span>${esc(x.choice)} ${lab(x.status)}</span><small><a href="${link(x.id)}">#${x.id}</a> · ${when(x.created)}</small></div>`).join('')}</div>`;
+  }
+
+  function render() {
+    const O = D.open, Dd = D.decided, L = D.legacy || [];
+    const waiting = Dd.filter(x => x.status === 'approved').length + L.filter(x => x.status === 'open').length, rev = Dd.filter(x => x.status === 'review').length;
+    if (TAB === 'legacy' && !L.length) TAB = 'open';
+    const tabs = [['open', `待定 ${O.length}`], ['done', `已定 ${Dd.length}`]].concat(L.length ? [['legacy', `以前的决策台 ${L.length}`]] : []);
+    $('#app').innerHTML = `<section class="intro"><h1>要你定的事，都在这一页。</h1>
+      <p>一件事一张卡：要定什么、为什么、几个选项和推荐。点一个就算定了，工单变成「可以做」，交给负责的人或 agent；定了的放进「已定」，一直看得到做到哪了。agent 有要你拍板的事，都放到这里来。</p>
+      <div class="stats"><div class="hot"><b>${O.length}</b><span>等你定</span></div><div class="${waiting ? 'warn' : ''}"><b>${waiting}</b><span>定了还没人接</span></div><div><b>${rev}</b><span>交付了等你验收</span></div><div><b>${Dd.filter(x => x.status === 'done').length}</b><span>已完成</span></div></div></section>
+      <div class="tabs">${tabs.map(([k, t]) => `<button data-tab="${k}"${TAB === k ? ' class="on"' : ''}>${t}</button>`).join('')}</div>
+      <div id="list">${TAB === 'open' ? (O.length ? O.map(openCard).join('') : '<div class="empty">现在没有要你定的事。</div>')
+        : TAB === 'done' ? (Dd.length ? Dd.map(doneCard).join('') : `<div class="empty">最近 ${D.days} 天没有定过的事。</div>`) : legacyList(L)}</div>`;
+    document.querySelectorAll('[data-tab]').forEach(b => b.onclick = () => { TAB = b.dataset.tab; try { sessionStorage.setItem('apf:desk', TAB); } catch (e) {} render(); });
+    document.querySelectorAll('.card[data-id]').forEach(card => {
+      const id = +card.dataset.id, ta = card.querySelector('textarea'), msg = card.querySelector('.msg');
+      const go = async (body) => { card.querySelectorAll('button').forEach(b => b.disabled = true); if (msg) msg.textContent = '';
+        try { await api(`items/${id}/decide`, body); await load(); } catch (e) { if (msg) msg.textContent = '没存上：' + e.message; card.querySelectorAll('button').forEach(b => b.disabled = false); } };
+      card.querySelectorAll('[data-choose]').forEach(b => b.onclick = () => go({ action: 'choose', option: b.dataset.choose, note: (ta && ta.value || '').trim() }));
+      const own = card.querySelector('[data-own]'); if (own) own.onclick = () => { const n = (ta.value || '').trim(); if (!n) { msg.textContent = '先在框里写你要怎么做'; ta.focus(); return; } go({ action: 'approve', note: n }); };
+      const no = card.querySelector('[data-no]'); if (no) no.onclick = () => { if (confirm('这件事先不做？')) go({ action: 'wontfix', note: (ta.value || '').trim() }); };
+    });
+  }
+  setInterval(() => { if (D && LS.get('code') && !document.hidden && !(document.activeElement && document.activeElement.tagName === 'TEXTAREA') && !document.querySelector('textarea:not(:placeholder-shown)')) load().catch(() => {}); }, 60000);
+  if (!LS.get('code')) gate(); else load().catch(e => gate(e.status === 401 ? '通行码不对，请重新输入。' : e.message));
+})();
+</script></body></html>

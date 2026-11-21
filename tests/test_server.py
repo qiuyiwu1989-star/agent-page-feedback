@@ -69,7 +69,7 @@ class ServerTest(unittest.TestCase):
         self.assertEqual([l['name'] for l in json.loads(self.req('items?page=/x')[1])['links']], ['规范'])
 
     def test_client_files_are_public(self):
-        for f in ('fb-loader.js', 'feedback.js', 'fb-media.js', 'feedback.html', 'vendor/html-to-image.min.js'):
+        for f in ('fb-loader.js', 'feedback.js', 'fb-media.js', 'feedback.html', 'desk.html', 'vendor/html-to-image.min.js'):
             st, _, ct = self.req('client/' + f, code='')
             self.assertEqual(st, 200, f)
         self.assertEqual(self.req('client/../server/fb_server.py', code='')[0], 404)   # 不能跳出前端目录
@@ -287,6 +287,38 @@ class ServerTest(unittest.TestCase):
         self.assertFalse(next(p for p in json.loads(b)['people'] if p['name'] == '王老师')['registered'])
         # MCP 能读
         err, t = self.call('roster', {}); self.assertFalse(err); self.assertIn('Codex-7', t)
+
+    def test_desk(self):
+        """决策台：agent 放上来（带推荐）→ 负责人点一个就是正式决定 → 「已定」里看得到做到哪了；旧决策台的记录照实显示。"""
+        J = lambda r: json.loads(r[1])
+        self.assertEqual(self.req('desk', {'title': '没有选项'}, key='agent-key', name='Claude')[0], 400)
+        st, b, _ = self.req('desk', {'title': '服务器内存要不要升级？', 'context': '现在常常用满', 'area': '服务器', 'rec': 'A', 'assignee': 'Claude',
+                                     'options': [{'title': '升级到 16GB', 'desc': '关机 5 分钟'}, {'title': '不升级'}]}, key='agent-key', name='Claude')
+        self.assertEqual(st, 200, b); it = J((st, b))['item']; iid = it['id']
+        self.assertEqual(it['status'], 'question'); self.assertEqual(it['page'], '_requests'); self.assertEqual(it['assignee'], 'Claude')
+        pr = it['replies'][-1]['meta']; self.assertEqual([o['key'] for o in pr['options']], ['A', 'B']); self.assertEqual(pr['rec'], 'A'); self.assertEqual(pr['area'], '服务器')
+        d = J(self.req('desk')); card = next(x for x in d['open'] if x['id'] == iid)
+        self.assertEqual((card['rec'], card['area'], card['summary']), ('A', '服务器', '现在常常用满'))
+        # 在已有工单上出方案（propose 也能带推荐）
+        other = self.new_item(body='首页标题换不换'); self.assertEqual(self.req(f'items/{other["id"]}/propose', {'summary': '两个方向', 'rec': 'B', 'options': [{'key': 'A', 'title': '换'}, {'key': 'B', 'title': '不换'}]}, name='Claude')[0], 200)
+        self.assertEqual(next(x for x in J(self.req('desk'))['open'] if x['id'] == other['id'])['rec'], 'B')
+        # 只有负责人能定；定了 → 可以做，进负责方的工作清单
+        self.assertEqual(self.req(f'items/{iid}/decide', {'action': 'choose', 'option': 'A'}, key='agent-key')[0], 403)
+        self.assertEqual(self.req(f'items/{iid}/decide', {'action': 'choose', 'option': 'A', 'note': '周末做'}, code='admin-code', name='负责人')[0], 200)
+        d = J(self.req('desk')); self.assertNotIn(iid, [x['id'] for x in d['open']])
+        dc = next(x for x in d['decided'] if x['id'] == iid); self.assertEqual((dc['status'], dc['decision']['option'], dc['decision']['note']), ('approved', 'A', '周末做'))
+        self.assertIn(iid, [x['id'] for x in J(self.req('queue.json?for=Claude'))['act']])
+        # 认领 → 交付：已定里看得到谁在做、交付了什么
+        self.req(f'items/{iid}/status', {'status': 'doing', 'note': 'Claude 处理中'}, key='agent-key', name='Claude')
+        dc = next(x for x in J(self.req('desk'))['decided'] if x['id'] == iid); self.assertEqual((dc['status'], dc['doing_by']), ('doing', 'Claude'))
+        self.req(f'items/{iid}/report', {'summary': '已升级', 'links': [{'name': '监控', 'url': 'https://example.com/m'}]}, key='agent-key', name='Claude')
+        dc = next(x for x in J(self.req('desk'))['decided'] if x['id'] == iid); self.assertEqual((dc['status'], dc['report']['summary']), ('review', '已升级'))
+        # 旧决策台：选择存成了「【决定 D01】……」的批注
+        old = self.new_item(page='admin/decisions.html', body='【决定 D07】先做演讲题头卡；补充：快一点', code='admin-code', name='负责人')
+        lg = next(x for x in J(self.req('desk'))['legacy'] if x['id'] == old['id']); self.assertEqual((lg['key'], lg['status']), ('D07', 'open')); self.assertTrue(lg['choice'].startswith('先做演讲'))
+        # MCP：ask_owner 默认交给自己
+        err, t = self.call('ask_owner', {'title': '证书要不要续', 'options': [{'key': 'A', 'title': '续'}, {'key': 'B', 'title': '不续'}], 'rec': 'A'}, name='Codex'); self.assertFalse(err, t)
+        self.assertEqual(json.loads(t)['item']['assignee'], 'Codex')
 
     def test_mcp(self):
         """MCP：连上就拿到规则；工具按同样的权限转调接口；没有拍板工具。"""

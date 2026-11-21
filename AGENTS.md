@@ -29,7 +29,7 @@
 ## 〇、最省事：用 MCP 连上任务中心
 
 任务中心本身是一个 MCP 服务（`{FB_PREFIX}mcp`）。连上以后，你会先收到这一页的规则摘要（像 skill 一样），然后用工具干活：
-`briefing`（偏好手册 + 工作清单）、`list_tasks`、`get_task`、`corrections`、`claim`、`reply`、`propose`、`report`、`crosscheck`、`create_request`、`assign`、`add_preference`、`send_digest`。
+`briefing`（偏好手册 + 工作清单）、`list_tasks`、`get_task`、`corrections`、`claim`、`reply`、`propose`、`report`、`crosscheck`、`create_request`、`ask_owner`、`assign`、`add_preference`、`send_digest`。
 没有拍板工具——拍板只属于负责人。
 
 ```bash
@@ -97,7 +97,10 @@ curl -s -X POST -H "X-FB-Key: $FB_KEY" -H "X-FB-Name: Claude" -H "Content-Type: 
   curl -s -X POST -H "X-FB-Code: $FB_CODE" -H "X-FB-Name: Claude" -H "Content-Type: application/json" \
     -d '{"summary":"两个方向","options":[{"key":"A","title":"……","desc":"……","link":"预览地址"},{"key":"B","title":"……"}]}' "${FB_API}items/编号/propose"
   ```
-  能做成可预览的页面就做（放在不影响正式页面的地址），负责人看了更好选。
+  能做成可预览的页面就做（放在不影响正式页面的地址），负责人看了更好选。写上推荐哪个（`"rec": "A"`）和属于哪一块（`"area": "服务器"`）。
+  出了方案的工单会自动出现在负责人的**决策台**（`client/desk.html`）上；负责人点一个就是正式决定，工单变成「可以做」。
+- **不依附某张工单、但要负责人拍板的事**（升级服务器、续证书、导航叫什么……）：用 `python3 tools/fb.py ask 决定.json`（或 MCP 的 `ask_owner`、`POST desk`）放上决策台，写清背景、两三个选项、推荐哪个、定了交给谁。
+  **不要自己另做网页放决策卡**：手写的页面里点的选择不是正式决定，不会进任何人的工作清单。
 
 ### 4. 「等负责人」：不要动
 待决定（`question`）、待验收（`review`）的任务在等负责人，不要改。
@@ -157,7 +160,8 @@ curl -s -X POST -H "X-FB-Code: $FB_CODE" -H "X-FB-Name: Claude" -H "Content-Type
 | GET | `files/<id>` | 附件 |
 | POST | `items` | 新建批注 |
 | POST | `items/<id>/reply` | 回复 `{body, images}` |
-| POST | `items/<id>/propose` | 出方案 `{summary, options, images}` → 待决定 |
+| POST | `items/<id>/propose` | 出方案 `{summary, options, rec, area, images}` → 待决定（出现在决策台上） |
+| GET / POST | `desk` | 决策台：GET 看待定、已定（做到哪了）、以前的决策台；POST `{title, context, options, rec, area, assignee, item}` 放上一件要负责人定的事 |
 | POST | `items/<id>/report` | 交付报告 `{summary, why, changes, links, rollback, before, after, images}` → 待验收 |
 | POST | `items/<id>/decide` | 负责人的决定（只限管理员通行码）`{action, option, note}` |
 | POST | `items/<id>/status` | 直接改状态 `{status, note}`（认领时改「处理中」）。不能改成「可以做」「不改」；改成「已完成」会当作交付报告，等负责人验收 |
