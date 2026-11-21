@@ -54,6 +54,12 @@
   .dock a.lkb:hover { background: rgba(255,255,255,.2); }
   .dock .n { min-width: 18px; height: 18px; padding: 0 5px; border-radius: 9px; background: rgba(255,255,255,.18); font-size: 11.5px; display: inline-grid; place-items: center; }
   .dock .more { position: relative; }
+  .dock .fold { padding: 7px 9px; color: rgba(255,255,255,.7); }
+  .dock .unfold { display: none; width: 40px; height: 40px; padding: 0; justify-content: center; position: relative; background: #F59E0B; color: #1f2430; font-weight: 600; }
+  .dock .unfold .n { position: absolute; right: -4px; top: -4px; background: #1f2430; color: #fff; }
+  .dock .unfold .n:empty, .dock .unfold .n.z { display: none; }
+  .dock.folded { padding: 3px; opacity: .72; transition: opacity .2s; } .dock.folded:hover { opacity: 1; }
+  .dock.folded > :not(.unfold) { display: none !important; } .dock.folded .unfold { display: flex; }
   .menu { position: absolute; bottom: calc(100% + 8px); left: 0; background: #fff; color: #1f2430; border-radius: 10px; box-shadow: 0 8px 28px rgba(15,20,35,.22); padding: 6px; min-width: 180px; display: none; }
   .menu.on { display: block; }
   .menu button, .menu a { display: block; width: 100%; text-align: left; padding: 8px 10px; border: 0; background: none; border-radius: 6px; color: inherit; text-decoration: none; font-size: 13px; }
@@ -153,7 +159,7 @@
   @media (max-width: 640px) { .dock { left: 8px; bottom: 8px; } .dock .lbl { display: none; } .drawer { width: 100vw; } }
   </style>
   <div class="pins"></div><div class="hl"><b></b></div>
-  <div class="dock" hidden><button class="main" title="点选页面上要批注的位置"><span>✎</span><span class="lbl">批注</span></button><button class="boxb" title="拖一个框，框出要改的区域"><span>▭</span><span class="lbl">框选</span></button><button class="cnt" title="本页批注"><span class="lbl">本页</span><span class="n">0</span></button><span class="more"><button class="mb" title="更多">⋯</button><div class="menu"><div class="who"></div><button data-a="pins">隐藏页面上的标记</button><button data-a="all">全站批注</button><a data-a="sum" target="_blank">汇总页 / 导出给 agent ↗</a><span class="lks"></span><button data-a="name">改姓名</button><button data-a="out">退出批注</button></div></span></div>
+  <div class="dock" hidden><button class="unfold" title="展开批注条"><span>✎</span><span class="n">0</span></button><button class="main" title="点选页面上要批注的位置"><span>✎</span><span class="lbl">批注</span></button><button class="boxb" title="拖一个框，框出要改的区域"><span>▭</span><span class="lbl">框选</span></button><button class="cnt" title="本页批注"><span class="lbl">本页</span><span class="n">0</span></button><span class="more"><button class="mb" title="更多">⋯</button><div class="menu"><div class="who"></div><button data-a="pins">隐藏页面上的标记</button><button data-a="all">全站批注</button><a data-a="sum" target="_blank">汇总页 / 导出给 agent ↗</a><span class="lks"></span><button data-a="name">改姓名</button><button data-a="out">退出批注</button></div></span><button class="fold" title="收起批注条（不挡页面）">‹</button></div>
   <div class="drawer"><div class="dh"><div class="t"><b>批注</b><button class="x" title="关闭">×</button></div><div class="tabs"></div></div><div class="list"></div></div>
   <div class="toast"></div>`;
   /* 严格 CSP（style-src 只放行 nonce 的页面）会拦住内联 <style> 和 style=""：样式改用可构造样式表，style 属性用 CSSOM 补上；没有 CSP 的页面不受影响。来自好设计站上的修复。 */
@@ -210,7 +216,7 @@
   function renderPins() { pinsEl.innerHTML = ''; if (!showPins) return;
     items.filter(it => open(it) || it.id === cur).forEach(it => { const p = locate(it); if (!p) return; const d = document.createElement('div'); d.className = 'pin' + (it.id === cur ? ' flash' : ''); d.style.left = p.x + 'px'; d.style.top = p.y + 'px'; d.style.background = SCOL[it.status] || '#C2410C'; d.textContent = it.id; d.dataset.id = it.id; d.title = it.author + '：' + it.body.slice(0, 60); d.onclick = () => openDrawer('page', it.id); pinsEl.append(d); }); }
   function movePins() { pinsEl.querySelectorAll('.pin').forEach(d => { const it = items.find(x => x.id === +d.dataset.id), p = it && locate(it); if (p) { d.style.left = p.x + 'px'; d.style.top = p.y + 'px'; } }); }
-  function counts() { const n = items.filter(open).length; $('.cnt .n').textContent = n; }
+  function counts() { const n = items.filter(open).length; $('.cnt .n').textContent = n; const u = $('.unfold .n'); u.textContent = n; u.classList.toggle('z', !n); }
 
   async function load() { page = pageKey(); try { const r = await api('items?page=' + encodeURIComponent(page)); role = r.role; items = r.items; links(r.links); counts(); renderPins(); if (drawer.classList.contains('on')) renderList(); }
     catch (e) { if (e.status === 401) { LS.set('code', ''); dock.hidden = true; login('口令已失效，请重新输入。'); } } }
@@ -354,10 +360,14 @@
   drawer.addEventListener('keydown', e => { if (e.key === 'Enter' && e.target.matches('.ra input')) e.target.closest('.card').querySelector('.rp').click(); e.stopPropagation(); });
 
   // ---------- 批注条 ----------
+  // 收起：只留一个小圆钮（带本页未完成数），不挡页面；记在本机
+  const fold = on => { if (on) { setPick(false); setBox(false); menu.classList.remove('on'); } dock.classList.toggle('folded', on); LS.set('fold', on ? '1' : ''); };
+  $('.fold').onclick = () => fold(true); $('.unfold').onclick = () => fold(false);
   $('.main').onclick = () => setPick(!picking);
   $('.boxb').onclick = () => setBox(!boxing);
   $('.cnt').onclick = () => drawer.classList.contains('on') && scope === 'page' ? (drawer.classList.remove('on'), cur = 0, renderPins()) : openDrawer('page');
   const menu = $('.menu'); $('.mb').onclick = e => { e.stopPropagation(); menu.classList.toggle('on'); };
+  if (LS.get('fold')) dock.classList.add('folded');
   document.addEventListener('click', () => menu.classList.remove('on'));
   menu.onclick = e => { const a = e.target.dataset.a; if (!a) return; menu.classList.remove('on');
     if (a === 'pins') { showPins = !showPins; LS.set('pins', showPins ? '' : 'off'); e.target.textContent = showPins ? '隐藏页面上的标记' : '显示页面上的标记'; renderPins(); }
