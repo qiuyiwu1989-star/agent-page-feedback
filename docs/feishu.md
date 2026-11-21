@@ -16,7 +16,7 @@
 
 ## 服务器上
 ```bash
-python3 -m venv /opt/feishu-bridge/venv && /opt/feishu-bridge/venv/bin/pip install lark-oapi
+python3 -m venv /opt/feishu-bridge/venv && /opt/feishu-bridge/venv/bin/pip install websocket-client   # 长连接协议在 feishu_bridge.py 里实现，常驻内存约 16MB
 # 配置写在只有服务账号能读的文件里（chmod 600），不要进仓库：
 #   FEISHU_APP_ID、FEISHU_APP_SECRET、FB_API（任务中心，本机地址）、FB_ADMIN_CODE、FB_OWNER_NAME、FB_SITE_URL
 # 用 systemd 常驻（EnvironmentFile 指向上面的文件，Restart=always）

@@ -10,7 +10,7 @@
 不需要公网回调地址，也不用改任务中心；只需要飞书应用（自建应用）开了长连接、加了两个订阅：
   回调 card.action.trigger（卡片回传交互），事件 im.message.receive_v1（接收消息）。
 
-依赖：pip install lark-oapi（建议装在单独的 venv 里）。配置（环境变量，放在只有服务账号能读的文件里，不要进仓库）：
+依赖：pip install websocket-client（很小；长连接协议在本文件里实现，不用飞书官方 SDK——它一启动就要 200MB 以上内存）。配置（环境变量，放在只有服务账号能读的文件里，不要进仓库）：
   FEISHU_APP_ID / FEISHU_APP_SECRET   飞书应用凭据
   FB_API         任务中心接口，例如 http://127.0.0.1:8900/api/fb/
   FB_ADMIN_CODE  负责人口令（只用来把负责人在飞书上的点击记成决定；不会发到飞书）
@@ -134,11 +134,12 @@ def poller():
         time.sleep(POLL)
 
 # ---------- 长连接：卡片按钮 ----------
-def on_card(data):
-    import lark_oapi as lark
-    from lark_oapi.event.callback.model.p2_card_action_trigger import P2CardActionTriggerResponse
-    ev = data.event; who = ev.operator.open_id if ev.operator else ''; v = (ev.action.value if ev.action else None) or {}
-    resp = lambda kind, text, card=None: P2CardActionTriggerResponse({'toast': {'type': kind, 'content': text}, **({'card': {'type': 'raw', 'data': card}} if card else {})})
+def on_card(ev):
+    who = ((ev.get('operator') or {}).get('open_id')) or ''; v = ((ev.get('action') or {}).get('value')) or {}
+    def resp(kind, text, card=None):
+        r = {'toast': {'type': kind, 'content': text}}
+        if card: r['card'] = {'type': 'raw', 'data': card}
+        return r
     if who not in S['owners']: return resp('error', '只有负责人能拍板。负责人先私聊机器人发「绑定 六位码」。')
     iid, a = int(v.get('id') or 0), v.get('a')
     if not iid or a not in ('choose', 'wontfix', 'accept'): return resp('error', '这个按钮不认识')
@@ -157,13 +158,13 @@ def on_card(data):
     return resp('success', f'已定：{what}', card)
 
 # ---------- 长连接：消息 ----------
-def on_message(data):
-    m = data.event.message; who = data.event.sender.sender_id.open_id if data.event.sender and data.event.sender.sender_id else ''
-    if m.message_type != 'text': return
-    try: text = json.loads(m.content).get('text', '')
+def on_message(ev):
+    m = ev.get('message') or {}; who = (((ev.get('sender') or {}).get('sender_id')) or {}).get('open_id', '')
+    if m.get('message_type') != 'text': return
+    try: text = json.loads(m.get('content') or '{}').get('text', '')
     except ValueError: return
     text = ' '.join(w for w in text.split() if not w.startswith('@_user')).strip()
-    chat = m.chat_id
+    chat = m.get('chat_id')
     try:
         if text.startswith('绑定'):
             code = text[2:].strip()
@@ -180,13 +181,118 @@ def on_message(data):
         say(chat, '我能做的：「决策台」把还没定的事发一遍；在群里 @我「在这里提醒」以后卡片发到那个群。拍板直接点卡片上的按钮。')
     except Exception as e: log('回复消息失败', e)
 
+# ---------- 长连接协议（和飞书官方 SDK 的 ws 客户端一致：protobuf 帧 + 心跳） ----------
+def _varint(n):
+    out = bytearray()
+    while True:
+        b = n & 0x7f; n >>= 7
+        if n: out.append(b | 0x80)
+        else: out.append(b); return bytes(out)
+def _field(num, wt, v):
+    k = _varint(num << 3 | wt)
+    if wt == 0: return k + _varint(v)
+    return k + _varint(len(v)) + v
+def frame_enc(f):
+    out = b''.join(_field(n, 0, f.get(k, 0)) for n, k in ((1, 'seq'), (2, 'log'), (3, 'service'), (4, 'method')))
+    for hk, hv in f.get('headers', []): out += _field(5, 2, _field(1, 2, hk.encode()) + _field(2, 2, str(hv).encode()))
+    for n, k in ((6, 'enc'), (7, 'ptype')):
+        if f.get(k): out += _field(n, 2, f[k].encode())
+    if f.get('payload') is not None: out += _field(8, 2, f['payload'])
+    if f.get('lognew'): out += _field(9, 2, f['lognew'].encode())
+    return out
+def _fields(b):
+    i, n = 0, len(b)
+    def vint():
+        nonlocal i
+        r, sh = 0, 0
+        while True:
+            x = b[i]; i += 1; r |= (x & 0x7f) << sh; sh += 7
+            if not x & 0x80: return r
+    while i < n:
+        key = vint(); num, wt = key >> 3, key & 7
+        if wt == 0: yield num, vint()
+        elif wt == 2: ln = vint(); yield num, b[i:i + ln]; i += ln
+        elif wt == 1: yield num, b[i:i + 8]; i += 8
+        elif wt == 5: yield num, b[i:i + 4]; i += 4
+        else: raise ValueError('protobuf 格式不认识')
+def frame_dec(b):
+    f = {'headers': [], 'payload': b''}
+    names = {1: 'seq', 2: 'log', 3: 'service', 4: 'method', 6: 'enc', 7: 'ptype', 9: 'lognew'}
+    for num, v in _fields(b):
+        if num == 5:
+            h = dict(_fields(v)); f['headers'].append((h.get(1, b'').decode(), h.get(2, b'').decode()))
+        elif num == 8: f['payload'] = v
+        elif num in (6, 7, 9): f[names[num]] = v.decode()
+        elif num in names: f[names[num]] = v
+    return f
+
+def endpoint():
+    r = urllib.request.Request('https://open.feishu.cn/callback/ws/endpoint', data=json.dumps({'AppID': APP_ID, 'AppSecret': APP_SECRET}).encode(), headers={'Content-Type': 'application/json', 'locale': 'zh'})
+    d = json.loads(urllib.request.urlopen(r, timeout=15).read())
+    if d.get('code'): raise RuntimeError(f'拿不到长连接地址：{d.get("code")} {d.get("msg")}')
+    return d['data']['URL'], (d['data'].get('ClientConfig') or {})
+
+def dispatch(payload):
+    d = json.loads(payload)
+    t = (d.get('header') or {}).get('event_type', '')
+    if t == 'card.action.trigger': return on_card(d.get('event') or {})
+    if t == 'im.message.receive_v1': threading.Thread(target=on_message, args=(d.get('event') or {},), daemon=True).start()
+    return None
+
+def run_ws():
+    import base64, websocket
+    url, conf = endpoint(); sid = int(urllib.parse.parse_qs(urllib.parse.urlparse(url).query).get('service_id', ['0'])[0])
+    ping = max(10, int(conf.get('PingInterval') or 120)); parts = {}
+    ws = websocket.create_connection(url, timeout=30); wl = threading.Lock(); alive = {'on': True}
+    log('长连接已连上')
+    def pinger():
+        while alive['on']:
+            try:
+                with wl: ws.send_binary(frame_enc({'service': sid, 'method': 0, 'headers': [('type', 'ping')]}))
+            except Exception: return
+            time.sleep(ping)
+    threading.Thread(target=pinger, daemon=True).start()
+    try:
+        ws.settimeout(ping * 3)
+        while True:
+            op, data = ws.recv_data()
+            if op == 8: raise RuntimeError('飞书关闭了连接')
+            if op != 2: continue
+            f = frame_dec(data); h = dict(f['headers'])
+            if f.get('method', 0) == 0:
+                if h.get('type') == 'pong' and f['payload']:
+                    try: ping = max(10, int(json.loads(f['payload']).get('PingInterval') or ping))
+                    except ValueError: pass
+                continue
+            pl = f['payload']; total = int(h.get('sum') or 1)
+            if total > 1:
+                buf = parts.setdefault(h.get('message_id'), [None] * total); buf[int(h.get('seq') or 0)] = pl
+                if any(x is None for x in buf): continue
+                pl = b''.join(parts.pop(h.get('message_id')))
+            t0 = time.time(); resp = {'code': 200}
+            try:
+                res = dispatch(pl) if h.get('type') == 'event' else None
+                if res is not None: resp['data'] = base64.b64encode(json.dumps(res, ensure_ascii=False).encode()).decode()
+            except Exception as e:
+                log('处理失败', e); resp = {'code': 500}
+            f['headers'].append(('biz_rt', str(int((time.time() - t0) * 1000)))); f['payload'] = json.dumps(resp).encode()
+            with wl: ws.send_binary(frame_enc(f))
+    finally:
+        alive['on'] = False
+        try: ws.close()
+        except Exception: pass
+
 def main():
     if not (APP_ID and APP_SECRET and ADMIN): sys.exit('缺少 FEISHU_APP_ID / FEISHU_APP_SECRET / FB_ADMIN_CODE')
-    import lark_oapi as lark
     log('飞书桥启动；任务中心', API, '；负责人', len(S['owners']), '位；提醒群', '已设' if S['chat'] else '未设')
     if not S['owners']: log('还没有绑定负责人。负责人私聊机器人发：绑定', S['bind_code'])
     threading.Thread(target=poller, daemon=True).start()
-    h = lark.EventDispatcherHandler.builder('', '').register_p2_card_action_trigger(on_card).register_p2_im_message_receive_v1(on_message).build()
-    lark.ws.Client(APP_ID, APP_SECRET, event_handler=h, log_level=lark.LogLevel.INFO).start()
+    wait = 5
+    while True:
+        t0 = time.time()
+        try: run_ws()
+        except Exception as e: log('长连接断了：', e)
+        wait = 5 if time.time() - t0 > 300 else min(wait * 2, 300)
+        time.sleep(wait)
 
 if __name__ == '__main__': main()
