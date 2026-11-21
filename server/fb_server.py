@@ -98,7 +98,7 @@ from collections import defaultdict, deque
 from http.server import ThreadingHTTPServer, BaseHTTPRequestHandler
 from urllib.parse import urlparse, parse_qs, unquote
 
-VERSION = '3.6.1'   # 改版本时同时改 CHANGELOG.md
+VERSION = '3.6.2'   # 改版本时同时改 CHANGELOG.md
 HERE = os.path.dirname(os.path.abspath(__file__))
 DB = os.environ.get('FB_DB', os.path.join(HERE, '..', 'data', 'fb.db'))
 PORT = int(os.environ.get('FB_PORT', '18810'))
@@ -621,6 +621,7 @@ class H(BaseHTTPRequestHandler):
         if limited(FAILS, ip, 10, 600): return self.send(429, {'error': '尝试次数太多，请 10 分钟后再试'})
         if not ENROLL or not hmac.compare_digest(tok, ENROLL): return self.send(401, {'error': '登记码不对'})
         if len(key) < 16: return self.send(400, {'error': 'agent 口令至少 16 位'})
+        if any(x and hmac.compare_digest(key, x) for x in (ADMIN, TEAM)): return self.send(400, {'error': 'agent 口令不能和管理员口令、成员口令相同（agent 不能拍板）。请换一串新的随机字符'})
         with LOCK, db() as c:
             if c.execute('SELECT 1 FROM agent_keys WHERE enroll=?', (sha(ENROLL),)).fetchone(): return self.send(409, {'error': '这个登记码已经用过了'})
             c.execute('INSERT OR REPLACE INTO agent_keys (hash, enroll, created) VALUES (?,?,?)', (sha(key), sha(ENROLL), time.time()))
