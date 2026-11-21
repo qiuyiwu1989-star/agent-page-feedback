@@ -60,6 +60,7 @@
     d.style.cssText = 'position:fixed;inset:0;z-index:2147483647;background:rgba(10,12,20,.82);display:grid;place-items:center;padding:24px;cursor:zoom-out';
     d.innerHTML = `<figure style="margin:0;max-width:96vw;max-height:92vh;display:grid;gap:8px;justify-items:center"><img src="${src}" style="max-width:96vw;max-height:86vh;border-radius:10px;box-shadow:0 20px 60px rgba(0,0,0,.5);background:#fff"><figcaption style="color:#e5e7eb;font:13px system-ui">${caption ? String(caption).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' })[c]) + ' · ' : ''}点击任意处关闭</figcaption></figure>`;
     const close = () => { d.remove(); removeEventListener('keydown', esc, true); }, esc = e => { if (e.key === 'Escape') { e.stopPropagation(); close(); } };
+    d.querySelectorAll('[style]').forEach(el => { const v = el.getAttribute('style'); if (v && !el.style.length) el.style.cssText = v; });   // 严格 CSP 的页面
     d.onclick = close; addEventListener('keydown', esc, true); document.body.append(d);
   }
   // 在图片上圈画：画笔 / 方框，撤销、清除；手指和鼠标都能用（Pointer Events）。界面放在 Shadow DOM 里，不受网站样式影响

@@ -1,37 +1,55 @@
 #!/usr/bin/env python3
-"""飞书桥：用飞书应用的「长连接」（WebSocket）把任务中心接进飞书——在飞书里直接拍板。
+"""飞书桥：用飞书应用的「长连接」（WebSocket）把一个或几个任务中心接进飞书——在飞书里拍板、在飞书里提需求。
 
-- 有新的「待你决定」「待你验收」，发一张带按钮的卡片到绑定的群（或负责人私聊）。
-- 负责人在卡片上点「选 A」「先不做」「通过」，经长连接回到这里，转成任务中心里的正式决定（decide）。
-  只有绑定过的负责人点才算数；别人点会提示没有拍板权限。
-- 私聊机器人：「绑定 六位码」把自己登记为负责人（六位码只在服务器日志和状态文件里）；
-  在群里 @机器人 说「在这里提醒」，以后卡片发到这个群；说「决策台」或「待定」，把还没定的事发一遍。
+- 有新的「待你决定」「待你验收」，发一张带按钮的卡片给负责人（私聊或绑定的群），卡片上标明是哪个项目。
+- 负责人在卡片上点「选 A」「先不做」「通过」，经长连接回到这里，记成那个任务中心里的正式决定（decide）。
+  只有绑定过的负责人点才算数；别人点会提示没有拍板权限；已经在别处定过的旧卡片不会重复记。
+- 负责人给机器人发一句话（不是下面的命令），就在任务中心开一张需求：
+  「好设计：首页卡片小一点」→ 开在「好设计」；「让 Codex 把……」「交给 Codex：……」→ 负责方 Codex；没说交给谁就交给 Claude。
+  负责人本人提的需求，定时处理的 agent 下一轮就会接。
+- 命令：「绑定 六位码」（登记为负责人）、「决策台」（把还没定的事发一遍）、「进度」（各项目还有多少事）、
+  在群里 @机器人「在这里提醒」（以后卡片发到这个群）、「帮助」。
 
-不需要公网回调地址，也不用改任务中心；只需要飞书应用（自建应用）开了长连接、加了两个订阅：
+不需要公网回调地址，也不用改任务中心；飞书应用（自建应用）要开长连接、加两个订阅：
   回调 card.action.trigger（卡片回传交互），事件 im.message.receive_v1（接收消息）。
 
-依赖：pip install websocket-client（很小；长连接协议在本文件里实现，不用飞书官方 SDK——它一启动就要 200MB 以上内存）。配置（环境变量，放在只有服务账号能读的文件里，不要进仓库）：
+依赖：pip install websocket-client（很小；长连接协议在本文件里实现，不用飞书官方 SDK——它一启动就要 200MB 以上内存）。
+配置（放在只有服务账号能读的文件里，不要进仓库）：
   FEISHU_APP_ID / FEISHU_APP_SECRET   飞书应用凭据
-  FB_API         任务中心接口，例如 http://127.0.0.1:8900/api/fb/
-  FB_ADMIN_CODE  负责人口令（只用来把负责人在飞书上的点击记成决定；不会发到飞书）
-  FB_OWNER_NAME  决定上的署名，默认「负责人」，记为「名字（飞书）」
-  FB_SITE_URL    任务中心的公网地址前缀，例如 https://example.com/api/fb/（卡片上的「在决策台看」）
+  FEISHU_PROJECTS  项目清单文件（JSON 数组），每项：
+                   {"key": "hs", "name": "好设计", "alias": ["好设计", "haoshejiguan"], "api": "http://127.0.0.1:18811/api/fb/",
+                    "admin_code": "负责人口令", "site_url": "https://haoshejiguan.com/api/fb/"}
+                   第一项是默认项目。只有一个项目时，也可以不用文件，改用 FB_API / FB_ADMIN_CODE / FB_SITE_URL / FB_PROJECT_NAME。
+  FB_OWNER_NAME  决定和需求上的署名，默认「负责人」，记为「名字（飞书）」
   FEISHU_STATE   状态文件（负责人、群、发过的卡片），默认和本文件同目录的 feishu-state.json
   FEISHU_POLL    多少秒看一次有没有新的事，默认 60
+负责人口令只用来把负责人在飞书上的点击和需求记进任务中心，不会发到飞书。
 """
-import json, os, random, sys, threading, time, urllib.parse, urllib.request
+import json, os, random, re, sys, threading, time, urllib.parse, urllib.request
 
 APP_ID, APP_SECRET = os.environ.get('FEISHU_APP_ID', ''), os.environ.get('FEISHU_APP_SECRET', '')
-API = os.environ.get('FB_API', 'http://127.0.0.1:8900/api/fb/')
-ADMIN = os.environ.get('FB_ADMIN_CODE', '')
 OWNER = os.environ.get('FB_OWNER_NAME', '负责人')
-SITE = os.environ.get('FB_SITE_URL', '').rstrip('/') + '/' if os.environ.get('FB_SITE_URL') else ''
 STATE = os.environ.get('FEISHU_STATE') or os.path.join(os.path.dirname(os.path.abspath(__file__)), 'feishu-state.json')
 POLL = max(15, int(os.environ.get('FEISHU_POLL', '60')))
 LOCK = threading.Lock()
 FEISHU = 'https://open.feishu.cn/open-apis/'
 
 def log(*a): print(time.strftime('%m-%d %H:%M:%S'), *a, flush=True)
+
+def load_projects():
+    f = os.environ.get('FEISHU_PROJECTS')
+    if f:
+        with open(f, encoding='utf-8') as fh: ps = json.load(fh)
+    else:
+        ps = [{'key': 'main', 'name': os.environ.get('FB_PROJECT_NAME', '任务中心'), 'api': os.environ.get('FB_API', 'http://127.0.0.1:8900/api/fb/'),
+               'admin_code': os.environ.get('FB_ADMIN_CODE', ''), 'site_url': os.environ.get('FB_SITE_URL', '')}]
+    for p in ps:
+        p['api'] = p['api'].rstrip('/') + '/'; p['site_url'] = (p.get('site_url') or '').rstrip('/') + '/' if p.get('site_url') else ''
+        p.setdefault('alias', [p['name']])
+    return ps
+PROJECTS = load_projects()
+PBY = {p['key']: p for p in PROJECTS}
+MULTI = len(PROJECTS) > 1
 
 # ---------- 状态 ----------
 def load():
@@ -48,9 +66,9 @@ def save(s):
 S = load(); save(S)
 
 # ---------- 任务中心 ----------
-def fb(path, body=None):
-    h = {'Content-Type': 'application/json', 'X-FB-Code': ADMIN, 'X-FB-Name': urllib.parse.quote(OWNER + '（飞书）')}
-    r = urllib.request.Request(API + path, data=json.dumps(body).encode() if body is not None else None, headers=h)
+def fb(p, path, body=None):
+    h = {'Content-Type': 'application/json', 'X-FB-Code': p['admin_code'], 'X-FB-Name': urllib.parse.quote(OWNER + '（飞书）')}
+    r = urllib.request.Request(p['api'] + path, data=json.dumps(body).encode() if body is not None else None, headers=h)
     try:
         with urllib.request.urlopen(r, timeout=15) as x: return json.loads(x.read())
     except urllib.error.HTTPError as e:
@@ -77,40 +95,40 @@ def say(chat, text): return send(chat, {'elements': [{'tag': 'markdown', 'conten
 
 # ---------- 卡片 ----------
 def clip(s, n): s = (s or '').strip(); return s if len(s) <= n else s[:n] + '…'
-def desk_link(iid): return (SITE + f'client/feedback.html#item-{iid}') if SITE else ''
+def item_link(p, iid): return (p['site_url'] + f'client/feedback.html#item-{iid}') if p['site_url'] else ''
+def tag(p): return f'【{p["name"]}】' if MULTI else ''
 def head(t, tpl): return {'title': {'tag': 'plain_text', 'content': clip(t, 90)}, 'template': tpl}
 def btn(text, value=None, url=None, kind='default'):
     b = {'tag': 'button', 'text': {'tag': 'plain_text', 'content': text}, 'type': kind}
     if url: b['url'] = url
     else: b['value'] = value
     return b
-def ask_card(it):
+def ask_card(p, it):
     opts, rec = it.get('options') or [], it.get('rec') or ''
-    md = []
-    if it.get('area'): md.append(f'**{it["area"]}** · #{it["id"]} · {it.get("proposer") or it.get("author") or ""}')
+    md = [' · '.join(x for x in (it.get('area'), f'#{it["id"]}', it.get('proposer') or it.get('author')) if x)]
     if it.get('summary'): md.append(clip(it['summary'], 900))
     for o in opts: md.append(f'**{o["key"]}. {o.get("title", "")}**' + ('　✅ 推荐' if o['key'] == rec else '') + (f'\n{clip(o.get("desc"), 300)}' if o.get('desc') else '') + (f'\n[看详情]({o["link"]})' if (o.get('link') or '').startswith('http') else ''))
     if it.get('assignee'): md.append(f'定了以后交给：{it["assignee"]}')
-    acts = [btn(f'选 {o["key"]}', {'a': 'choose', 'id': it['id'], 'o': o['key']}, kind='primary' if o['key'] == rec else 'default') for o in opts]
-    acts.append(btn('先不做', {'a': 'wontfix', 'id': it['id']}, kind='danger'))
-    if desk_link(it['id']): acts.append(btn('写意见 / 看全部', url=desk_link(it['id'])))
-    return {'config': {'wide_screen_mode': True, 'update_multi': True}, 'header': head('待你决定 · ' + (it.get('title') or f'#{it["id"]}'), 'purple'),
+    acts = [btn(f'选 {o["key"]}', {'p': p['key'], 'a': 'choose', 'id': it['id'], 'o': o['key']}, kind='primary' if o['key'] == rec else 'default') for o in opts]
+    acts.append(btn('先不做', {'p': p['key'], 'a': 'wontfix', 'id': it['id']}, kind='danger'))
+    if item_link(p, it['id']): acts.append(btn('写意见 / 看全部', url=item_link(p, it['id'])))
+    return {'config': {'wide_screen_mode': True, 'update_multi': True}, 'header': head(f'{tag(p)}待你决定 · ' + (it.get('title') or f'#{it["id"]}'), 'purple'),
             'elements': [{'tag': 'markdown', 'content': '\n\n'.join(md)}, {'tag': 'action', 'actions': acts}]}
-def review_card(it):
+def review_card(p, it):
     rp = it.get('report') or {}
-    md = [f'**{it.get("area") or "交付"}** · #{it["id"]} · {rp.get("by") or ""}', '**交付：** ' + clip(rp.get('summary'), 900)]
+    md = [' · '.join(x for x in (it.get('area'), f'#{it["id"]}', rp.get('by')) if x), '**交付：** ' + clip(rp.get('summary'), 900)]
     links = [l for l in rp.get('links') or [] if (l.get('url') or '').startswith('http')]
     if links: md.append('　'.join(f'[{l.get("name") or "看结果"}]({l["url"]})' for l in links[:4]))
-    acts = [btn('通过', {'a': 'accept', 'id': it['id']}, kind='primary')]
-    if desk_link(it['id']): acts.append(btn('要再改（写意见）', url=desk_link(it['id'])))
-    return {'config': {'wide_screen_mode': True, 'update_multi': True}, 'header': head('待你验收 · ' + (it.get('title') or f'#{it["id"]}'), 'green'),
+    acts = [btn('通过', {'p': p['key'], 'a': 'accept', 'id': it['id']}, kind='primary')]
+    if item_link(p, it['id']): acts.append(btn('要再改（写意见）', url=item_link(p, it['id'])))
+    return {'config': {'wide_screen_mode': True, 'update_multi': True}, 'header': head(f'{tag(p)}待你验收 · ' + (it.get('title') or f'#{it["id"]}'), 'green'),
             'elements': [{'tag': 'markdown', 'content': '\n\n'.join(md)}, {'tag': 'action', 'actions': acts}]}
 def done_card(title, text, tpl='grey'):
     return {'config': {'wide_screen_mode': True, 'update_multi': True}, 'header': head(title, tpl), 'elements': [{'tag': 'markdown', 'content': text}]}
 
 # ---------- 定时：把新的事发出去 ----------
-def todo():
-    d = fb('desk?days=30')
+def todo(p):
+    d = fb(p, 'desk?days=30')
     out = [('q', it['id'], it.get('proposed_at') or it['updated'], it) for it in d['open']]
     out += [('r', it['id'], it['report']['at'], it) for it in d['decided'] if it['status'] == 'review' and it.get('report')]
     return out
@@ -118,19 +136,22 @@ def push_new(chat=None, force=False):
     chat = chat or S['chat']
     if not chat: return 0
     n = 0
-    for kind, iid, at, it in todo():
-        key = f'{kind}:{iid}:{int(at)}'
-        if key in S['sent'] and not force: continue
-        try:
-            send(chat, ask_card(it) if kind == 'q' else review_card(it)); n += 1
-            with LOCK: S['sent'][key] = int(time.time()); save(S)
-        except Exception as e: log('发卡片失败', iid, e)
+    for p in PROJECTS:
+        try: items = todo(p)
+        except Exception as e: log(p['name'], '看任务中心失败', e); continue
+        for kind, iid, at, it in items:
+            key = f'{p["key"]}:{kind}:{iid}:{int(at)}'
+            if key in S['sent'] and not force: continue
+            try:
+                send(chat, ask_card(p, it) if kind == 'q' else review_card(p, it)); n += 1
+                with LOCK: S['sent'][key] = int(time.time()); save(S)
+            except Exception as e: log('发卡片失败', p['name'], iid, e)
     return n
 def poller():
     while True:
         try:
             if S['chat']: n = push_new(); n and log('发出', n, '张卡片')
-        except Exception as e: log('看任务中心失败', e)
+        except Exception as e: log('发卡片出错', e)
         time.sleep(POLL)
 
 # ---------- 长连接：卡片按钮 ----------
@@ -141,23 +162,55 @@ def on_card(ev):
         if card: r['card'] = {'type': 'raw', 'data': card}
         return r
     if who not in S['owners']: return resp('error', '只有负责人能拍板。负责人先私聊机器人发「绑定 六位码」。')
+    p = PBY.get(v.get('p')) or PROJECTS[0]
     iid, a = int(v.get('id') or 0), v.get('a')
     if not iid or a not in ('choose', 'wontfix', 'accept'): return resp('error', '这个按钮不认识')
     body = {'action': a}
     if a == 'choose': body['option'] = str(v.get('o') or '')
     try:   # 旧卡片：这件事已经在别处定过了，就不再记一次
-        d = fb('desk?days=60'); live = {x['id'] for x in d['open']} if a != 'accept' else {x['id'] for x in d['decided'] if x['status'] == 'review'}
+        d = fb(p, 'desk?days=60'); live = {x['id'] for x in d['open']} if a != 'accept' else {x['id'] for x in d['decided'] if x['status'] == 'review'}
     except Exception as e: return resp('error', f'读不到任务中心：{e}')
-    if iid not in live: return resp('info', '这件事已经定过了（或者又出了新方案），以任务中心里的为准。', done_card(f'已经处理 · #{iid}', '这张卡片过期了。最新的在决策台上。'))
-    try: it = fb(f'items/{iid}/decide', body)['item']
+    if iid not in live: return resp('info', '这件事已经定过了（或者又出了新方案），以任务中心里的为准。', done_card(f'{tag(p)}已经处理 · #{iid}', '这张卡片过期了。最新的在决策台上。'))
+    try: it = fb(p, f'items/{iid}/decide', body)['item']
     except Exception as e: return resp('error', f'没存上：{e}')
     what = {'choose': f'选 {body.get("option")}', 'wontfix': '先不做', 'accept': '通过'}[a]
-    log('飞书拍板', iid, what, S['owners'][who])
+    log('飞书拍板', p['name'], iid, what)
     st = {'approved': '可以做，已进负责方的工作清单', 'done': '已完成', 'wontfix': '不做'}.get(it['status'], it['status'])
-    card = done_card(f'已定 · {it.get("title") or "#" + str(iid)}', f'**{S["owners"][who]}** 在飞书上点了「{what}」　{time.strftime("%m-%d %H:%M")}\n现在：{st}' + (f'\n交给：{it["assignee"]}' if it.get('assignee') and a == 'choose' else ''), 'green' if a != 'wontfix' else 'grey')
+    card = done_card(f'{tag(p)}已定 · {it.get("title") or "#" + str(iid)}', f'**{S["owners"][who]}** 在飞书上点了「{what}」　{time.strftime("%m-%d %H:%M")}\n现在：{st}' + (f'\n交给：{it["assignee"]}' if it.get('assignee') and a == 'choose' else ''), 'green' if a != 'wontfix' else 'grey')
     return resp('success', f'已定：{what}', card)
 
 # ---------- 长连接：消息 ----------
+AGENTS = ('Claude', 'Codex', 'Kimi')
+def parse_request(text):
+    """一句话 → (项目, 负责方, 标题, 正文)。项目看开头或句子里的项目名；负责方看「让 X」「交给 X」「@X」。"""
+    p, t = PROJECTS[0], text.strip()
+    for q in PROJECTS:
+        for al in q['alias']:
+            a = re.escape(al); m = re.match(r'\s*(?:[【\[]' + a + r'[】\]]\s*[:：，, ]?|' + a + r'\s*[:：，, ])\s*', t, re.I)
+            if m: p, t = q, t[m.end():]; break
+        else: continue
+        break
+    else:
+        hits = [q for q in PROJECTS if any(al.lower() in t.lower() for al in q['alias'])]
+        if len(hits) == 1: p = hits[0]
+    asg = 'Claude'
+    m = re.match(r'\s*(?:让|请|交给|@)\s*(' + '|'.join(AGENTS) + r')\s*[:：，, ]?\s*', t, re.I)
+    if m: asg = next(a for a in AGENTS if a.lower() == m.group(1).lower()); t = t[m.end():]
+    t = t.strip()
+    title = re.split(r'[。！？\n]', t)[0][:40] or t[:40]
+    return p, asg, title, t
+def progress():
+    rows = []
+    for p in PROJECTS:
+        try:
+            q = fb(p, 'queue.json'); s = q['summary']
+            rows.append(f'**{p["name"]}**：等你定 {s["waiting"]} · 等你验收 {s["review"]} · 可以做 / 在做 {s["act"]} · 新提的 {s["triage_new"]}')
+        except Exception as e: rows.append(f'**{p["name"]}**：读不到（{e}）')
+    return '\n'.join(rows)
+HELP = ('直接跟我说一句话，我就在任务中心开一张需求，agent 下一轮接走。例如：\n'
+        + '\n'.join(f'「{p["name"]}：……」开在{p["name"]}' for p in PROJECTS[:4]) +
+        '\n「让 Codex ……」交给 Codex；没说交给谁就交给 Claude。\n'
+        '命令：「决策台」把还没定的事发一遍；「进度」看各项目还有多少事；在群里 @我「在这里提醒」以后卡片发到那个群。拍板直接点卡片上的按钮。')
 def on_message(ev):
     m = ev.get('message') or {}; who = (((ev.get('sender') or {}).get('sender_id')) or {}).get('open_id', '')
     if m.get('message_type') != 'text': return
@@ -165,21 +218,31 @@ def on_message(ev):
     except ValueError: return
     text = ' '.join(w for w in text.split() if not w.startswith('@_user')).strip()
     chat = m.get('chat_id')
+    if not text: return
     try:
         if text.startswith('绑定'):
             code = text[2:].strip()
             if code != S['bind_code']: say(chat, '绑定码不对。绑定码在服务器上（飞书桥的日志 / 状态文件），向管理这台服务器的人要。'); return
-            name = OWNER
-            with LOCK: S['owners'][who] = name; S['bind_code'] = '%06d' % random.SystemRandom().randint(0, 999999); S['chat'] = S['chat'] or chat; save(S)
-            log('绑定负责人', name, who[:10] + '…'); say(chat, f'好，已把你登记为负责人（{name}）。以后卡片上的按钮你点了就算定了。\n在群里 @我 说「在这里提醒」，卡片就发到那个群；说「决策台」，把还没定的事发一遍。'); return
-        if who not in S['owners']: say(chat, '我是任务中心的飞书桥。负责人私聊我发「绑定 六位码」后，就可以在飞书里拍板。'); return
+            with LOCK: S['owners'][who] = OWNER; S['bind_code'] = '%06d' % random.SystemRandom().randint(0, 999999); S['chat'] = S['chat'] or chat; save(S)
+            log('绑定负责人', OWNER, who[:10] + '…'); say(chat, f'好，已把你登记为负责人（{OWNER}）。以后卡片上的按钮你点了就算定了。\n\n' + HELP)
+            push_new(chat); return
+        if who not in S['owners']: say(chat, '我是任务中心的飞书桥。负责人私聊我发「绑定 六位码」后，就可以在飞书里拍板、提需求。'); return
         if '在这里提醒' in text or '提醒到这里' in text:
             with LOCK: S['chat'] = chat; save(S)
             say(chat, '好，以后「待你决定」「待你验收」的卡片发到这里。'); return
-        if any(k in text for k in ('决策台', '待定', '待决定', '要我定')):
+        if text in ('决策台', '待定', '待决定', '要我定的', '要我定'):
             n = push_new(chat, force=True); say(chat, '现在没有要你定或验收的事。' if not n else f'上面 {n} 张是还没定 / 待验收的。'); return
-        say(chat, '我能做的：「决策台」把还没定的事发一遍；在群里 @我「在这里提醒」以后卡片发到那个群。拍板直接点卡片上的按钮。')
-    except Exception as e: log('回复消息失败', e)
+        if text in ('进度', '状态', '现在怎么样'): say(chat, progress()); return
+        if text in ('帮助', '?', '？', 'help') or len(text) < 4: say(chat, HELP); return
+        p, asg, title, body = parse_request(text)
+        it = fb(p, 'items', {'page': '_requests', 'url': '', 'title': title, 'body': body + '\n\n（负责人在飞书上提的）', 'assignee': asg, 'priority': 'mid'})['item']
+        log('飞书开需求', p['name'], it['id'], asg)
+        say(chat, f'{tag(p)}已开需求 **#{it["id"]}**：{clip(title, 40)}\n交给 {asg}；定时处理的 agent 下一轮（每小时一次）接走，做完交付报告会发到这里等你验收。'
+                  + (f'\n[在任务中心看]({item_link(p, it["id"])})' if item_link(p, it['id']) else '') + '\n开错项目或交错人，在任务中心改就行。')
+    except Exception as e:
+        log('处理消息失败', e)
+        try: say(chat, f'没办成：{e}')
+        except Exception: pass
 
 # ---------- 长连接协议（和飞书官方 SDK 的 ws 客户端一致：protobuf 帧 + 心跳） ----------
 def _varint(n):
@@ -283,8 +346,8 @@ def run_ws():
         except Exception: pass
 
 def main():
-    if not (APP_ID and APP_SECRET and ADMIN): sys.exit('缺少 FEISHU_APP_ID / FEISHU_APP_SECRET / FB_ADMIN_CODE')
-    log('飞书桥启动；任务中心', API, '；负责人', len(S['owners']), '位；提醒群', '已设' if S['chat'] else '未设')
+    if not (APP_ID and APP_SECRET and all(p['admin_code'] for p in PROJECTS)): sys.exit('缺少 FEISHU_APP_ID / FEISHU_APP_SECRET / 项目的负责人口令')
+    log('飞书桥启动；项目', '、'.join(p['name'] for p in PROJECTS), '；负责人', len(S['owners']), '位；提醒', '已设' if S['chat'] else '未设')
     if not S['owners']: log('还没有绑定负责人。负责人私聊机器人发：绑定', S['bind_code'])
     threading.Thread(target=poller, daemon=True).start()
     wait = 5

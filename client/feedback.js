@@ -156,6 +156,11 @@
   <div class="dock" hidden><button class="main" title="点选页面上要批注的位置"><span>✎</span><span class="lbl">批注</span></button><button class="boxb" title="拖一个框，框出要改的区域"><span>▭</span><span class="lbl">框选</span></button><button class="cnt" title="本页批注"><span class="lbl">本页</span><span class="n">0</span></button><span class="more"><button class="mb" title="更多">⋯</button><div class="menu"><div class="who"></div><button data-a="pins">隐藏页面上的标记</button><button data-a="all">全站批注</button><a data-a="sum" target="_blank">汇总页 / 导出给 agent ↗</a><span class="lks"></span><button data-a="name">改姓名</button><button data-a="out">退出批注</button></div></span></div>
   <div class="drawer"><div class="dh"><div class="t"><b>批注</b><button class="x" title="关闭">×</button></div><div class="tabs"></div></div><div class="list"></div></div>
   <div class="toast"></div>`;
+  /* 严格 CSP（style-src 只放行 nonce 的页面）会拦住内联 <style> 和 style=""：样式改用可构造样式表，style 属性用 CSSOM 补上；没有 CSP 的页面不受影响。来自好设计站上的修复。 */
+  const fixStyleAttrs = n => { if (!n || !n.querySelectorAll) return; const els = [...n.querySelectorAll('[style]')]; if (n.matches && n.matches('[style]')) els.push(n); for (const el of els) { const v = el.getAttribute('style'); if (v && !el.style.length) el.style.cssText = v; } };
+  try { const st = root.querySelector('style'); if (st && !st.sheet && 'adoptedStyleSheets' in root) { const sh = new CSSStyleSheet(); sh.replaceSync(st.textContent); root.adoptedStyleSheets = [sh]; } } catch (e) {}
+  fixStyleAttrs(root); new MutationObserver(ms => ms.forEach(m => m.addedNodes.forEach(fixStyleAttrs))).observe(root, { childList: true, subtree: true });
+
   const media = new Promise(r => { if (window.APFMedia) return r(); const sc = document.createElement('script'); sc.src = new URL('fb-media.js', SRC).href; sc.onload = sc.onerror = () => r(); document.head.append(sc); });
   const M = () => window.APFMedia;
   const $ = s => root.querySelector(s), dock = $('.dock'), pinsEl = $('.pins'), hl = $('.hl'), drawer = $('.drawer'), list = $('.list');
