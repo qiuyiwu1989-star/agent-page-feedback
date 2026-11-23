@@ -4,7 +4,7 @@
 - 有新的「待你决定」「待你验收」，发一张带按钮的卡片给负责人（私聊或绑定的群），卡片上标明是哪个项目。
 - 负责人在卡片上点「选 A」「先不做」「通过」，经长连接回到这里，记成那个任务中心里的正式决定（decide）。
   只有绑定过的负责人点才算数；别人点会提示没有拍板权限；已经在别处定过的旧卡片不会重复记。
-- 负责人给机器人发一句话（不是下面的命令），就在任务中心开一张需求：
+- 负责人给机器人发一句话（不是下面的命令），先弹一张确认卡（开在哪个项目 / 不用），点了才开需求；回复某张卡片，这句话就算在那张工单上（要再改 / 按我写的做 / 只是留言）：
   「好设计：首页卡片小一点」→ 开在「好设计」；「让 Codex 把……」「交给 Codex：……」→ 负责方 Codex；没说交给谁就交给 Claude。
   负责人本人提的需求，定时处理的 agent 下一轮就会接。
 - 命令：「绑定 六位码」（登记为负责人）、「决策台」（把还没定的事发一遍）、「进度」（各项目还有多少事）、
@@ -57,6 +57,7 @@ def load():
         with open(STATE, encoding='utf-8') as f: s = json.load(f)
     except (OSError, ValueError): s = {}
     s.setdefault('owners', {}); s.setdefault('chat', ''); s.setdefault('sent', {})
+    s.setdefault('msg', {}); s.setdefault('pending', {}); s.setdefault('chat_proj', {})
     if not s.get('bind_code'): s['bind_code'] = '%06d' % random.SystemRandom().randint(0, 999999)
     return s
 def save(s):
@@ -132,6 +133,11 @@ def todo(p):
     out = [('q', it['id'], it.get('proposed_at') or it['updated'], it) for it in d['open']]
     out += [('r', it['id'], it['report']['at'], it) for it in d['decided'] if it['status'] == 'review' and it.get('report')]
     return out
+def remember(mid, pkey, kind, iid):
+    """记下每张卡片的消息编号 → 哪个项目哪张工单，负责人回复这张卡片时就知道说的是哪件事。只留最近 800 张。"""
+    S['msg'][mid] = [pkey, kind, iid]
+    if len(S['msg']) > 800:
+        for k in list(S['msg'])[:len(S['msg']) - 800]: S['msg'].pop(k, None)
 def push_new(chat=None, force=False):
     chat = chat or S['chat']
     if not chat: return 0
@@ -143,8 +149,8 @@ def push_new(chat=None, force=False):
             key = f'{p["key"]}:{kind}:{iid}:{int(at)}'
             if key in S['sent'] and not force: continue
             try:
-                send(chat, ask_card(p, it) if kind == 'q' else review_card(p, it)); n += 1
-                with LOCK: S['sent'][key] = int(time.time()); save(S)
+                mid = send(chat, ask_card(p, it) if kind == 'q' else review_card(p, it)); n += 1
+                with LOCK: S['sent'][key] = int(time.time()); remember(mid, p['key'], kind, iid); save(S)
             except Exception as e: log('发卡片失败', p['name'], iid, e)
     return n
 def poller():
@@ -162,6 +168,7 @@ def on_card(ev):
         if card: r['card'] = {'type': 'raw', 'data': card}
         return r
     if who not in S['owners']: return resp('error', '只有负责人能拍板。负责人先私聊机器人发「绑定 六位码」。')
+    if v.get('a') in ('req', 'note', 'cancel'): return on_confirm(v, who, resp)
     p = PBY.get(v.get('p')) or PROJECTS[0]
     iid, a = int(v.get('id') or 0), v.get('a')
     if not iid or a not in ('choose', 'wontfix', 'accept'): return resp('error', '这个按钮不认识')
@@ -181,9 +188,9 @@ def on_card(ev):
 
 # ---------- 长连接：消息 ----------
 AGENTS = ('Claude', 'Codex', 'Kimi')
-def parse_request(text):
-    """一句话 → (项目, 负责方, 标题, 正文)。项目看开头或句子里的项目名；负责方看「让 X」「交给 X」「@X」。"""
-    p, t = PROJECTS[0], text.strip()
+def parse_request(text, default=None):
+    """一句话 → (项目, 负责方, 标题, 正文)。项目看开头或句子里的项目名，都没有就用这个群绑定的项目；负责方看「让 X」「交给 X」「@X」。"""
+    p, t = default or PROJECTS[0], text.strip()
     for q in PROJECTS:
         for al in q['alias']:
             a = re.escape(al); m = re.match(r'\s*(?:[【\[]' + a + r'[】\]]\s*[:：，, ]?|' + a + r'\s*[:：，, ])\s*', t, re.I)
@@ -211,25 +218,80 @@ HELP = ('直接跟我说一句话，我就在任务中心开一张需求，agent
         + '\n'.join(f'「{p["name"]}：……」开在{p["name"]}' for p in PROJECTS[:4]) +
         '\n「让 Codex ……」交给 Codex；没说交给谁就交给 Claude。\n'
         '命令：「决策台」把还没定的事发一遍；「进度」看各项目还有多少事；在群里 @我「在这里提醒」以后卡片发到那个群。拍板直接点卡片上的按钮。')
+def stash(item):
+    t = '%08x' % random.SystemRandom().getrandbits(32)
+    with LOCK:
+        S['pending'][t] = {**item, 'at': int(time.time())}
+        for k in [k for k, x in S['pending'].items() if time.time() - x['at'] > 7 * 86400]: S['pending'].pop(k, None)
+        save(S)
+    return t
+def confirm_req_card(text, chat):
+    p, asg, title, body = parse_request(text, PBY.get(S['chat_proj'].get(chat)))
+    t = stash({'t': 'req', 'text': text, 'asg': asg, 'title': title, 'body': body, 'guess': p['key']})
+    acts = [btn(q['name'], {'a': 'req', 't': t, 'k': q['key']}, kind='primary' if q['key'] == p['key'] else 'default') for q in PROJECTS]
+    acts.append(btn('不用，只是说说', {'a': 'cancel', 't': t}))
+    return {'config': {'wide_screen_mode': True, 'update_multi': True}, 'header': head('开成需求？', 'blue'),
+            'elements': [{'tag': 'markdown', 'content': f'**{clip(title, 60)}**\n交给 {asg}' + ('（句子里写「让 Codex……」可以换人）' if asg == 'Claude' else '') + f'\n\n点项目名就开在那个项目（猜的是「{p["name"]}」）。'},
+                         {'tag': 'action', 'actions': acts}]}
+def confirm_note_card(pkey, kind, iid, text):
+    p = PBY.get(pkey) or PROJECTS[0]
+    t = stash({'t': 'note', 'p': pkey, 'kind': kind, 'id': iid, 'text': text})
+    first = btn('要再改（按这句改）', {'a': 'note', 't': t, 'how': 'rework'}, kind='primary') if kind == 'r' else btn('按我写的做', {'a': 'note', 't': t, 'how': 'approve'}, kind='primary')
+    return {'config': {'wide_screen_mode': True, 'update_multi': True}, 'header': head(f'{tag(p)}这句话算在 #{iid} 上', 'blue'),
+            'elements': [{'tag': 'markdown', 'content': f'「{clip(text, 200)}」'},
+                         {'tag': 'action', 'actions': [first, btn('只是留言', {'a': 'note', 't': t, 'how': 'comment'}), btn('算了', {'a': 'cancel', 't': t})]}]}
+def on_confirm(v, who, resp):
+    with LOCK: x = S['pending'].pop(v.get('t') or '', None); save(S)
+    if not x: return resp('info', '这张确认卡已经处理过了。', done_card('已处理', '这张确认卡已经用过了。'))
+    if v['a'] == 'cancel': return resp('success', '好，不开', done_card('没开需求', f'「{clip(x.get("text"), 80)}」只是记在聊天里。'))
+    if x['t'] == 'req':
+        p = PBY.get(v.get('k')) or PROJECTS[0]
+        try: it = fb(p, 'items', {'page': '_requests', 'url': '', 'title': x['title'], 'body': x['body'] + '\n\n（负责人在飞书上提的）', 'assignee': x['asg'], 'priority': 'mid'})['item']
+        except Exception as e:
+            with LOCK: S['pending'][v['t']] = x; save(S)
+            return resp('error', f'没开成：{e}')
+        log('飞书开需求', p['name'], it['id'], x['asg'])
+        link = item_link(p, it['id'])
+        return resp('success', f'已开 #{it["id"]}', done_card(f'{tag(p) or ""}已开需求 #{it["id"]}', f'**{clip(x["title"], 60)}**\n交给 {x["asg"]}；定时处理的 agent 下一轮接走，做完交付会发卡片给你验收。' + (f'\n[在任务中心看]({link})' if link else ''), 'green'))
+    p = PBY.get(x['p']) or PROJECTS[0]; iid, how = x['id'], v.get('how')
+    try:
+        if how == 'comment': fb(p, f'items/{iid}/reply', {'body': x['text']}); what = '留言'
+        elif how == 'rework': fb(p, f'items/{iid}/decide', {'action': 'rework', 'note': x['text']}); what = '要再改'
+        else: fb(p, f'items/{iid}/decide', {'action': 'approve', 'note': x['text']}); what = '按你写的做'
+    except Exception as e: return resp('error', f'没存上：{e}')
+    log('飞书回复工单', p['name'], iid, what)
+    return resp('success', f'已记在 #{iid}：{what}', done_card(f'{tag(p)}已记在 #{iid}', f'{what}：「{clip(x["text"], 200)}」', 'green'))
+
+HELP = ('直接跟我说一句话，我先弹一张卡问你开在哪个项目，点一下才开需求；点「不用」就不开。\n'
+        '回复某张卡片（长按 → 回复），这句话就算在那张工单上：要再改、按你写的做，或者只是留言。\n'
+        '「让 Codex ……」交给 Codex；没说交给谁就交给 Claude。\n'
+        '命令：「决策台」把还没定的事发一遍；「进度」看各项目还有多少事；在群里 @我「这个群是好设计」以后这个群默认是好设计；@我「在这里提醒」以后卡片发到这个群。')
 def on_message(ev):
     m = ev.get('message') or {}; who = (((ev.get('sender') or {}).get('sender_id')) or {}).get('open_id', '')
     if m.get('message_type') != 'text': return
     try: text = json.loads(m.get('content') or '{}').get('text', '')
     except ValueError: return
     text = ' '.join(w for w in text.split() if not w.startswith('@_user')).strip()
-    chat = m.get('chat_id')
+    chat, group = m.get('chat_id'), m.get('chat_type') == 'group'
     if not text: return
     try:
         norm = text.translate({ord(c): ord('0') + i for i, c in enumerate('０１２３４５６７８９')})
-        if '绑定' in norm:
-            m = re.search(r'(?<!\d)(\d{6})(?!\d)', norm); code = m.group(1) if m else ''
+        if '绑定' in norm and not group:
+            mm = re.search(r'(?<!\d)(\d{6})(?!\d)', norm); code = mm.group(1) if mm else ''
             log('绑定尝试', (code[:2] + '****') if code else '（没有六位数字）', '对' if code == S['bind_code'] else '不对', who[:8] + '…')
             if code != S['bind_code']: say(chat, '绑定码不对（要发「绑定」加六位数字，例如：绑定 123456）。绑定码在服务器上，向管理这台服务器的人要。'); return
             with LOCK: S['owners'][who] = OWNER; S['bind_code'] = '%06d' % random.SystemRandom().randint(0, 999999); S['chat'] = S['chat'] or chat; save(S)
             log('绑定负责人', OWNER, who[:10] + '…'); say(chat, f'好，已把你登记为负责人（{OWNER}）。以后卡片上的按钮你点了就算定了。\n\n' + HELP)
             push_new(chat); return
         if who not in S['owners']:
-            log('未绑定的人发来消息', who[:8] + '…', clip(text, 20)); say(chat, '我是任务中心的飞书桥。负责人私聊我发「绑定 六位码」（例如：绑定 123456）后，就可以在飞书里拍板、提需求。'); return
+            if group: return          # 群里别人 @ 我：不回话，不刷屏
+            say(chat, '我是任务中心的飞书桥。负责人私聊我发「绑定 六位码」（例如：绑定 123456）后，就可以在飞书里拍板、提需求。'); return
+        mg = re.match(r'(?:这个群是|本群是|本群项目[:：]?\s*)(.+)$', text)
+        if mg:
+            name = mg.group(1).strip(); q = next((q for q in PROJECTS if any(al.lower() == name.lower() or al.lower() in name.lower() for al in q['alias'])), None)
+            if not q: say(chat, '没有这个项目。现在有：' + '、'.join(p['name'] for p in PROJECTS)); return
+            with LOCK: S['chat_proj'][chat] = q['key']; save(S)
+            say(chat, f'好，这个群以后默认是「{q["name"]}」。'); return
         if '在这里提醒' in text or '提醒到这里' in text:
             with LOCK: S['chat'] = chat; save(S)
             say(chat, '好，以后「待你决定」「待你验收」的卡片发到这里。'); return
@@ -237,11 +299,9 @@ def on_message(ev):
             n = push_new(chat, force=True); say(chat, '现在没有要你定或验收的事。' if not n else f'上面 {n} 张是还没定 / 待验收的。'); return
         if text in ('进度', '状态', '现在怎么样'): say(chat, progress()); return
         if text in ('帮助', '?', '？', 'help') or len(text) < 4: say(chat, HELP); return
-        p, asg, title, body = parse_request(text)
-        it = fb(p, 'items', {'page': '_requests', 'url': '', 'title': title, 'body': body + '\n\n（负责人在飞书上提的）', 'assignee': asg, 'priority': 'mid'})['item']
-        log('飞书开需求', p['name'], it['id'], asg)
-        say(chat, f'{tag(p)}已开需求 **#{it["id"]}**：{clip(title, 40)}\n交给 {asg}；定时处理的 agent 下一轮（每小时一次）接走，做完交付报告会发到这里等你验收。'
-                  + (f'\n[在任务中心看]({item_link(p, it["id"])})' if item_link(p, it['id']) else '') + '\n开错项目或交错人，在任务中心改就行。')
+        ref = S['msg'].get(m.get('parent_id') or '') or S['msg'].get(m.get('root_id') or '')
+        if ref: send(chat, confirm_note_card(ref[0], ref[1], ref[2], text)); return
+        send(chat, confirm_req_card(text, chat))
     except Exception as e:
         log('处理消息失败', e)
         try: say(chat, f'没办成：{e}')
