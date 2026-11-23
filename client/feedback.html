@@ -142,6 +142,7 @@
   .gate label { display: block; font-weight: 600; margin: 12px 0 4px; font-size: 14px; } .gate input { width: 100%; height: 38px; border: 1px solid var(--line-strong); border-radius: 10px; padding: 0 12px; }
   .gate .err { color: #B91C1C; font-size: 13px; min-height: 1.4em; margin-top: 6px; }
   dialog { border: 0; border-radius: 18px; padding: 0; width: min(860px, 94vw); box-shadow: 0 20px 60px rgba(15,20,35,.3); } dialog::backdrop { background: rgba(15,20,35,.4); }
+  .batl { max-height: 55vh; overflow: auto; } .batl h4 { margin: 10px 0 4px; font-size: 13px; color: var(--ink-2); } .batl label { display: grid; grid-template-columns: auto minmax(0,1fr); gap: 2px 8px; padding: 6px 4px; border-top: 1px solid var(--line); font-size: 13.5px; cursor: pointer; } .batl label small { grid-column: 2; color: var(--ink-3); } .lane .more.bat { border-style: solid; border-color: #7C3AED; color: #6D28D9; background: #fff; margin-bottom: 8px; font-weight: 600; }
   .dlg { padding: 20px; } .dlg h3 { margin: 0 0 4px; } .dlg p { margin: 0 0 12px; color: var(--ink-2); font-size: 14px; }
   .dlg textarea { width: 100%; height: 52vh; border: 1px solid var(--line-strong); border-radius: 10px; padding: 12px; font: 12.5px/1.6 ui-monospace, Menlo, Consolas, monospace; }
   .dlg .row { display: flex; gap: 10px; justify-content: flex-end; margin-top: 12px; flex-wrap: wrap; align-items: center; } .dlg .row span { margin-right: auto; font-size: 13px; color: var(--ink-3); }
@@ -198,6 +199,9 @@
   <label>备注</label><input id="rsT" maxlength="300" placeholder="例如：能发布 / 只读 / 只在周末">
   <div class="err" id="rsE"></div>
   <div class="row"><button class="btn" id="rsOff" type="button" hidden>停用</button><button class="btn" value="cancel" formnovalidate>取消</button><button class="btn pri" id="rsOk" type="button">保存</button></div></form></dialog>
+<dialog id="batd"><div class="dlg"><h3>一次通过一批</h3><p>勾上的都记为「通过」（已完成）。不想通过的取消勾选；要再改的，打开那张卡单独写意见。</p>
+  <div class="row" style="justify-content:flex-start;margin-bottom:8px"><button class="btn" id="batall">全选</button><button class="btn" id="batnone">全不选</button></div>
+  <div id="batl" class="inbl batl"></div><p id="batm" style="color:#B91C1C;margin:8px 0 0"></p><div class="row"><button class="btn" onclick="this.closest('dialog').close()">取消</button><button class="btn pri" id="batgo">通过选中的</button></div></div></dialog>
 <dialog id="inbd"><div class="dlg"><h3 id="inbt">收件箱</h3><p>有人 @ 你的、交给你可以做的、等你决定和验收的。点一条打开那张卡，@ 你的会标为已读。</p>
   <div id="inbl" class="inbl"></div><div class="row"><button class="btn" id="inbr">全部标为已读</button><button class="btn pri" onclick="this.closest('dialog').close()">关闭</button></div></div></dialog>
 <dialog id="mcpd"><div class="dlg"><h3>给 agent 接入</h3>
@@ -343,7 +347,7 @@
     if (!LANE_CUR) LANE_CUR = ['question', 'review', 'open', 'approved', 'doing'].find(s => rows.some(it => laneOf(it) === s)) || 'open';
     return `<div class="board">${LANES.map(([s, n, d]) => { let xs = rows.filter(it => laneOf(it) === s).sort((a, b) => s === 'closed' ? (b.updated || b.created) - (a.updated || a.created) : (({ high: 0, mid: 1, low: 2 })[a.priority] ?? 1) - (({ high: 0, mid: 1, low: 2 })[b.priority] ?? 1) || a.id - b.id);
       if (compact && !xs.length) return ''; const all = xs.length, cut = s === 'closed' && xs.length > SHOW_CLOSED; if (cut) xs = xs.slice(0, SHOW_CLOSED);
-      return `<section class="lane${['question', 'review'].includes(s) ? ' you' : ''}${all ? '' : ' zero'}${s === LANE_CUR ? ' cur' : ''}" data-lane="${s}"><h3><i style="background:${SCOL[s === 'closed' ? 'done' : s]}"></i>${n}<span class="n">${all}</span>${['question', 'review'].includes(s) && all ? '<em>等负责人</em>' : ''}</h3><p>${d}</p>${xs.map(bcard).join('')}${cut ? `<button class="more" data-more>再看 ${Math.min(24, all - SHOW_CLOSED)} 条</button>` : ''}</section>`; }).join('')}</div>`; }
+      return `<section class="lane${['question', 'review'].includes(s) ? ' you' : ''}${all ? '' : ' zero'}${s === LANE_CUR ? ' cur' : ''}" data-lane="${s}"><h3><i style="background:${SCOL[s === 'closed' ? 'done' : s]}"></i>${n}<span class="n">${all}</span>${['question', 'review'].includes(s) && all ? '<em>等负责人</em>' : ''}</h3><p>${d}</p>${s === 'review' && all > 1 && role === 'admin' ? '<button class="more bat" data-batch>一次通过一批…</button>' : ''}${xs.map(bcard).join('')}${cut ? `<button class="more" data-more>再看 ${Math.min(24, all - SHOW_CLOSED)} 条</button>` : ''}</section>`; }).join('')}</div>`; }
   const ago2 = t => { const d = Date.now() / 1000 - t; return d < 60 ? '刚刚' : d < 3600 ? Math.floor(d / 60) + ' 分钟前' : d < 86400 ? Math.floor(d / 3600) + ' 小时前' : when(t); };
   const mins = t => { const m = Math.floor((Date.now() / 1000 - t) / 60); return m < 60 ? m + ' 分钟' : Math.floor(m / 60) + ' 小时' + (m % 60 ? ' ' + (m % 60) + ' 分' : ''); };
   function nowStrip() { if (!PRES) return ''; const ps = PRES.people.filter(p => Date.now() / 1000 - p.seen < 86400 * 2).slice(0, 14); if (!ps.length) return '';
@@ -494,7 +498,25 @@
   function inbList() { const T = { mention: '@你', todo: '交给你', decide: '等你决定', accept: '等你验收' };
     $('#inbt').textContent = `收件箱 · ${LS.get('name')}`;
     $('#inbl').innerHTML = INB.items.length ? INB.items.map(x => `<button class="ib${x.type === 'mention' && !x.read || x.type !== 'mention' ? ' new' : ''}" data-ib="${x.item}" data-mt="${x.type}"><span class="k">${T[x.type]}</span><span><b>#${x.item}</b> ${esc(x.title || '')}${x.by ? ` · ${esc(x.by)}` : ''}<span class="x">${atHi(esc(String(x.text || '').replace(/\s+/g, ' ').slice(0, 140)))}</span></span><small>${ago2(x.created)}</small></button>`).join('') : '<div class="empty">收件箱是空的。</div>'; }
+  // 一次通过一批：只列「待验收」的，按页面分组，默认全选
+  function batList() {
+    const boxes = () => [...document.querySelectorAll('#batl [data-bid]')];
+    const rs = ITEMS.filter(it => it.status === 'review').sort((a, b) => (a.page || '').localeCompare(b.page || '') || a.id - b.id), by = {};
+    rs.forEach(it => (by[it.page === REQ ? '需求（不依附页面）' : (it.title || it.page)] ||= []).push(it));
+    $('#batl').innerHTML = Object.entries(by).map(([g, xs]) => `<h4>${esc(g)} · ${xs.length}</h4>` + xs.map(it => { const rp = [...(it.replies || [])].reverse().find(r => r.kind === 'report');
+      return `<label><input type="checkbox" data-bid="${it.id}" checked><span>#${it.id} ${esc(((it.page === REQ && it.title) ? it.title : (it.body || '')).slice(0, 60))}</span><small>${rp ? esc(rp.author) + '：' + esc((rp.body || '').slice(0, 90)) : '没有交付报告'}</small></label>`; }).join('')).join('') || '<p>现在没有待验收的。</p>';
+    const upd = () => { const n = boxes().filter(x => x.checked).length; $('#batgo').textContent = `通过选中的 ${n} 张`; $('#batgo').disabled = !n; }; upd();
+    $('#batl').onchange = upd;
+    $('#batall').onclick = () => { boxes().forEach(x => x.checked = true); upd(); };
+    $('#batnone').onclick = () => { boxes().forEach(x => x.checked = false); upd(); };
+    $('#batm').textContent = '';
+    $('#batgo').onclick = async () => { const ids = boxes().filter(x => x.checked).map(x => +x.dataset.bid); $('#batgo').disabled = true;
+      try { const r = await api('items/batch', { action: 'accept', ids }); $('#batd').close(); await load();
+        alert(`已通过 ${r.done.length} 张` + (r.skipped.length ? `；跳过 ${r.skipped.length} 张（${r.skipped.slice(0, 3).map(x => '#' + x.id + ' ' + x.why).join('，')}）` : '')); }
+      catch (er) { $('#batm').textContent = '没存上：' + er.message; $('#batgo').disabled = false; } };
+  }
   document.addEventListener('click', async e => {
+    if (e.target.closest('[data-batch]')) { batList(); $('#batd').showModal(); return; }
     if (e.target.closest('#inbb')) { inbList(); $('#inbd').showModal(); return; }
     if (e.target.closest('#inbr')) { try { await api('inbox/read', { all: true }); INB = await api('inbox'); inbBadge(); inbList(); } catch (er) { alert(er.message); } return; }
     const ib = e.target.closest('[data-ib]'); if (!ib) return; const id = +ib.dataset.ib; $('#inbd').close(); openItem(id);

@@ -12,6 +12,7 @@
   python3 tools/fb.py inbox                     收件箱：@ 我的、交给我的；python3 tools/fb.py read 编号... 标已读
   python3 tools/fb.py check                     看本轮有没有要做的事：有 → 退出码 0 并打印数量；没有 → 退出码 10
   python3 tools/fb.py md                        工作清单（Markdown）
+  python3 tools/fb.py corrections               打回记录：负责人每次「再改」「改回来」的原话（一行一条）
   python3 tools/fb.py queue                     工作清单（JSON）
   python3 tools/fb.py crosscheck 编号 pass|fail "核对结果"   交叉核对别人的交付（只给负责人参考，不算验收）
   python3 tools/fb.py assign 编号 负责方                      改负责方（提出人或负责人）
@@ -127,7 +128,7 @@ def wait(did):
 
 def main():
     ap = argparse.ArgumentParser(description='agent-page-feedback 命令行'); sub = ap.add_subparsers(dest='cmd', required=True)
-    for c in ('check', 'md', 'queue', 'deploys', 'inbox'): sub.add_parser(c)
+    for c in ('check', 'md', 'queue', 'deploys', 'inbox', 'corrections'): sub.add_parser(c)
     p = sub.add_parser('read'); p.add_argument('items', type=int, nargs='+')
     p = sub.add_parser('reply'); p.add_argument('item', type=int); p.add_argument('text')
     p = sub.add_parser('crosscheck'); p.add_argument('item', type=int); p.add_argument('result', choices=['pass', 'fail', 'note']); p.add_argument('text')
@@ -159,6 +160,9 @@ def main():
         for d in call('deploys')['deploys'][:20]:
             print(f'#{d["id"]} {d["action"]} {d["status"]} ref={d["ref"] or "-"} 任务={d["items"]} {d["author"]} {time.strftime("%m-%d %H:%M", time.localtime(d["created"]))} {d["note"] or ""}')
         return
+    if a.cmd == 'corrections':
+        t = call('corrections.jsonl', raw=True); t = t.decode('utf-8') if isinstance(t, bytes) else str(t)
+        print(t.strip() or '（还没有打回记录）'); return
     if a.cmd == 'reply': print('已回复 #%d' % call(f'items/{a.item}/reply', {'body': a.text})['item']['id']); return
     if a.cmd == 'propose':
         with open(a.file, encoding='utf-8') as f: body = json.load(f)

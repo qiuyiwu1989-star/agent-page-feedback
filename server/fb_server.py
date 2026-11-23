@@ -98,7 +98,7 @@ from collections import defaultdict, deque
 from http.server import ThreadingHTTPServer, BaseHTTPRequestHandler
 from urllib.parse import urlparse, parse_qs, unquote
 
-VERSION = '3.6.3'   # 改版本时同时改 CHANGELOG.md
+VERSION = '3.7.0'   # 改版本时同时改 CHANGELOG.md
 HERE = os.path.dirname(os.path.abspath(__file__))
 DB = os.environ.get('FB_DB', os.path.join(HERE, '..', 'data', 'fb.db'))
 PORT = int(os.environ.get('FB_PORT', '18810'))
@@ -402,6 +402,23 @@ class H(BaseHTTPRequestHandler):
                     r = c.execute('SELECT * FROM items WHERE id=?', (cur.lastrowid,)).fetchone(); out = row_item(c, r); out['mine'] = True
                     notify('新需求' if page == REQUESTS else '新批注', out, name, txt, quote=d.get('quote'))
                     return self.send(200, {'item': out})
+                if method == 'POST' and p == 'items/batch':
+                    # 一次通过一批（只限负责人）：只动「待验收」的，其余跳过并说明原因
+                    if role != 'admin': return self.send(403, {'error': '只有负责人（管理员口令）可以验收'})
+                    d = self.body(); now = time.time(); note = clip(d.get('note'), 500).strip()
+                    if d.get('action') != 'accept': return self.send(400, {'error': '一次一批只支持「通过」'})
+                    ids = [int(num(x)) for x in (d.get('ids') or [])[:500] if int(num(x))]
+                    if not ids: return self.send(400, {'error': '没有选工单'})
+                    done, skipped = [], []
+                    for iid in ids:
+                        r = c.execute('SELECT status FROM items WHERE id=? AND deleted=0', (iid,)).fetchone()
+                        if not r: skipped.append({'id': iid, 'why': '不存在'}); continue
+                        if r['status'] != 'review': skipped.append({'id': iid, 'why': '不是待验收（' + STATUSES.get(r['status'], r['status']) + '）'}); continue
+                        add_reply(c, iid, name, cid, role, '通过' + (f'：{note}' if note else '') + '（一次通过一批）', 'decision', {'action': 'accept', 'option': '', 'note': note, 'batch': True}, now)
+                        c.execute('UPDATE items SET status=?, signal=?, signal_note=?, signal_by=?, signal_at=?, updated=? WHERE id=?', ('done', 'accept', note, name, now, now, iid))
+                        done.append(iid)
+                    if done: push(card(f'一次通过 {len(done)} 张', f'**{name}** 一次通过了 {len(done)} 张待验收的工单：' + '、'.join(f'#{i}' for i in done[:60]) + ('…' if len(done) > 60 else ''), tpl='green'))
+                    return self.send(200, {'done': done, 'skipped': skipped})
                 m = re.fullmatch(r'items/(\d+)/(reply|status|edit|delete|shot|decide|propose|report|assign|check)', p)
                 if method == 'POST' and m:
                     iid, act = int(m.group(1)), m.group(2); r = c.execute('SELECT * FROM items WHERE id=? AND deleted=0', (iid,)).fetchone()
@@ -537,7 +554,7 @@ class H(BaseHTTPRequestHandler):
                                            'act': act, 'triage': tri, 'waiting': g('question'), 'review': g('review')})
                 if p in ('digest', 'digests', 'deploy', 'site-file') or p.startswith('deploys'):
                     return self.ops(c, method, p, role, name)
-                if method == 'GET' and p == 'corrections.jsonl':
+                if method == 'GET' and p in ('corrections.jsonl', 'corrections'):
                     return self.send(200, raw=corrections(c).encode(), ctype='application/x-ndjson; charset=utf-8')
                 if method == 'GET' and p == 'presence': return self.send(200, presence(c))
                 if method == 'GET' and p == 'roster': return self.send(200, roster(c))

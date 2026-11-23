@@ -48,6 +48,7 @@ class ServerTest(unittest.TestCase):
     def req(self, path, body=None, code='team-code', name='张三', cid='c1', key=None):
         h = {'Content-Type': 'application/json', 'X-FB-Code': code, 'X-FB-Name': urllib.request.quote(name), 'X-FB-Cid': cid}
         if key is not None: h.pop('X-FB-Code'); h['X-FB-Key'] = key
+        if getattr(self, 'ip', None): h['X-Real-IP'] = self.ip   # 单独算写入频率
         r = urllib.request.Request(self.base + path, data=json.dumps(body).encode() if body is not None else None, headers=h)
         try:
             with urllib.request.urlopen(r) as x: return x.status, x.read(), x.headers.get('Content-Type', '')
@@ -319,6 +320,21 @@ class ServerTest(unittest.TestCase):
         # MCP：ask_owner 默认交给自己
         err, t = self.call('ask_owner', {'title': '证书要不要续', 'options': [{'key': 'A', 'title': '续'}, {'key': 'B', 'title': '不续'}], 'rec': 'A'}, name='Codex'); self.assertFalse(err, t)
         self.assertEqual(json.loads(t)['item']['assignee'], 'Codex')
+
+    def test_zz_batch_accept(self):   # 放最后：会改统计数、占写入频率
+        """一次通过一批：只限负责人；只动待验收的，其余跳过并说明原因。"""
+        self.ip = '10.9.9.9'
+        a = self.new_item(body='批量一'); b = self.new_item(body='批量二'); c = self.new_item(body='还没交付')
+        for it in (a, b): self.assertEqual(self.req(f'items/{it["id"]}/report', {'summary': '改好了'}, key='agent-key', name='Claude')[0], 200)
+        self.assertEqual(self.req('items/batch', {'action': 'accept', 'ids': [a['id']]}, key='agent-key')[0], 403)
+        self.assertEqual(self.req('items/batch', {'action': 'approve', 'ids': [a['id']]}, code='admin-code')[0], 400)
+        st, r, _ = self.req('items/batch', {'action': 'accept', 'ids': [a['id'], b['id'], c['id'], 999999]}, code='admin-code', name='负责人'); r = json.loads(r)
+        self.assertEqual(st, 200); self.assertEqual(sorted(r['done']), sorted([a['id'], b['id']]))
+        self.assertEqual({x['id'] for x in r['skipped']}, {c['id'], 999999})
+        items = {x['id']: x for x in json.loads(self.req('items?all=1')[1])['items']}
+        self.assertEqual(items[a['id']]['status'], 'done'); self.assertEqual(items[c['id']]['status'], 'open')
+        self.assertEqual(items[a['id']]['replies'][-1]['meta']['batch'], True)
+        self.assertEqual(self.req('corrections')[0], 200)   # 不带 .jsonl 也能取
 
     def test_mcp(self):
         """MCP：连上就拿到规则；工具按同样的权限转调接口；没有拍板工具。"""

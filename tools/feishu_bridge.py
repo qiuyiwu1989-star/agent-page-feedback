@@ -169,6 +169,14 @@ def on_card(ev):
         return r
     if who not in S['owners']: return resp('error', '只有负责人能拍板。负责人先私聊机器人发「绑定 六位码」。')
     if v.get('a') in ('req', 'note', 'cancel'): return on_confirm(v, who, resp)
+    if v.get('a') == 'batch':
+        p = PBY.get(v.get('p')) or PROJECTS[0]
+        try:
+            ids = [x['id'] for x in fb(p, 'queue.json')['review']]
+            r = fb(p, 'items/batch', {'action': 'accept', 'ids': ids}) if ids else {'done': [], 'skipped': []}
+        except Exception as e: return resp('error', f'没存上：{e}')
+        log('飞书一次通过', p['name'], len(r['done']))
+        return resp('success', f'已通过 {len(r["done"])} 张', done_card(f'{tag(p)}一次通过 {len(r["done"])} 张', '、'.join(f'#{i}' for i in r['done'][:80]) or '没有待验收的。', 'green'))
     p = PBY.get(v.get('p')) or PROJECTS[0]
     iid, a = int(v.get('id') or 0), v.get('a')
     if not iid or a not in ('choose', 'wontfix', 'accept'): return resp('error', '这个按钮不认识')
@@ -214,10 +222,6 @@ def progress():
             rows.append(f'**{p["name"]}**：等你定 {s["waiting"]} · 等你验收 {s["review"]} · 可以做 / 在做 {s["act"]} · 新提的 {s["triage_new"]}')
         except Exception as e: rows.append(f'**{p["name"]}**：读不到（{e}）')
     return '\n'.join(rows)
-HELP = ('直接跟我说一句话，我就在任务中心开一张需求，agent 下一轮接走。例如：\n'
-        + '\n'.join(f'「{p["name"]}：……」开在{p["name"]}' for p in PROJECTS[:4]) +
-        '\n「让 Codex ……」交给 Codex；没说交给谁就交给 Claude。\n'
-        '命令：「决策台」把还没定的事发一遍；「进度」看各项目还有多少事；在群里 @我「在这里提醒」以后卡片发到那个群。拍板直接点卡片上的按钮。')
 def stash(item):
     t = '%08x' % random.SystemRandom().getrandbits(32)
     with LOCK:
@@ -265,7 +269,7 @@ def on_confirm(v, who, resp):
 HELP = ('直接跟我说一句话，我先弹一张卡问你开在哪个项目，点一下才开需求；点「不用」就不开。\n'
         '回复某张卡片（长按 → 回复），这句话就算在那张工单上：要再改、按你写的做，或者只是留言。\n'
         '「让 Codex ……」交给 Codex；没说交给谁就交给 Claude。\n'
-        '命令：「决策台」把还没定的事发一遍；「进度」看各项目还有多少事；在群里 @我「这个群是好设计」以后这个群默认是好设计；@我「在这里提醒」以后卡片发到这个群。')
+        '命令：「一次通过」把待验收的整批通过；「决策台」把还没定的事发一遍；「进度」看各项目还有多少事；在群里 @我「这个群是好设计」以后这个群默认是好设计；@我「在这里提醒」以后卡片发到这个群。')
 def on_message(ev):
     m = ev.get('message') or {}; who = (((ev.get('sender') or {}).get('sender_id')) or {}).get('open_id', '')
     if m.get('message_type') != 'text': return
@@ -298,6 +302,16 @@ def on_message(ev):
         if text in ('决策台', '待定', '待决定', '要我定的', '要我定'):
             n = push_new(chat, force=True); say(chat, '现在没有要你定或验收的事。' if not n else f'上面 {n} 张是还没定 / 待验收的。'); return
         if text in ('进度', '状态', '现在怎么样'): say(chat, progress()); return
+        if text in ('一次通过', '全部通过', '批量通过', '一次通过一批'):
+            acts, rows = [], []
+            for q in PROJECTS:
+                try: n = len(fb(q, 'queue.json')['review'])
+                except Exception: n = 0
+                if n: acts.append(btn(f'通过{q["name"]}的 {n} 张', {'a': 'batch', 'p': q['key']})); rows.append(f'**{q["name"]}**：{n} 张待验收' + (f'　[先在任务中心挑]({q["site_url"]}client/feedback.html)' if q['site_url'] else ''))
+            if not acts: say(chat, '现在没有待验收的。'); return
+            send(chat, {'config': {'wide_screen_mode': True, 'update_multi': True}, 'header': head('一次通过一批？', 'green'),
+                        'elements': [{'tag': 'markdown', 'content': '\n'.join(rows) + '\n\n点按钮就把这个项目「待验收」的全部记为通过。想挑着通过，点链接到任务中心「待你验收」一栏的「一次通过一批…」勾选。'},
+                                     {'tag': 'action', 'actions': acts}]}); return
         if text in ('帮助', '?', '？', 'help') or len(text) < 4: say(chat, HELP); return
         ref = S['msg'].get(m.get('parent_id') or '') or S['msg'].get(m.get('root_id') or '')
         if ref: send(chat, confirm_note_card(ref[0], ref[1], ref[2], text)); return
