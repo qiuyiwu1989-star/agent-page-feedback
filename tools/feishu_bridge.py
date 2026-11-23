@@ -220,13 +220,16 @@ def on_message(ev):
     chat = m.get('chat_id')
     if not text: return
     try:
-        if text.startswith('绑定'):
-            code = text[2:].strip()
-            if code != S['bind_code']: say(chat, '绑定码不对。绑定码在服务器上（飞书桥的日志 / 状态文件），向管理这台服务器的人要。'); return
+        norm = text.translate({ord(c): ord('0') + i for i, c in enumerate('０１２３４５６７８９')})
+        if '绑定' in norm:
+            m = re.search(r'(?<!\d)(\d{6})(?!\d)', norm); code = m.group(1) if m else ''
+            log('绑定尝试', (code[:2] + '****') if code else '（没有六位数字）', '对' if code == S['bind_code'] else '不对', who[:8] + '…')
+            if code != S['bind_code']: say(chat, '绑定码不对（要发「绑定」加六位数字，例如：绑定 123456）。绑定码在服务器上，向管理这台服务器的人要。'); return
             with LOCK: S['owners'][who] = OWNER; S['bind_code'] = '%06d' % random.SystemRandom().randint(0, 999999); S['chat'] = S['chat'] or chat; save(S)
             log('绑定负责人', OWNER, who[:10] + '…'); say(chat, f'好，已把你登记为负责人（{OWNER}）。以后卡片上的按钮你点了就算定了。\n\n' + HELP)
             push_new(chat); return
-        if who not in S['owners']: say(chat, '我是任务中心的飞书桥。负责人私聊我发「绑定 六位码」后，就可以在飞书里拍板、提需求。'); return
+        if who not in S['owners']:
+            log('未绑定的人发来消息', who[:8] + '…', clip(text, 20)); say(chat, '我是任务中心的飞书桥。负责人私聊我发「绑定 六位码」（例如：绑定 123456）后，就可以在飞书里拍板、提需求。'); return
         if '在这里提醒' in text or '提醒到这里' in text:
             with LOCK: S['chat'] = chat; save(S)
             say(chat, '好，以后「待你决定」「待你验收」的卡片发到这里。'); return
